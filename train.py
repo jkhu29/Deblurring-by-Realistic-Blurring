@@ -17,7 +17,6 @@ import dataset
 import utils
 
 
-# TODO(jkhu29): add DBGAN train
 opt = config.get_options()
 
 # deveice init
@@ -39,6 +38,7 @@ manual_seed = opt.seed
 random.seed(manual_seed)
 torch.manual_seed(manual_seed)
 
+# bgan
 # models init
 model_g = BGAN_G().to(device)
 model_d = GAN_D().to(device)
@@ -79,7 +79,7 @@ if opt.save_model_pdf:
     out = model_g(sampleData)
     out_d = model_d(out)
     d = make_dot(out_d)
-    d.render('modelviz.pdf', view=False)
+    d.render('bgan_modelviz.pdf', view=False)
 
 # pre-train bgan_g first
 for epoch in range(opt.niter):
@@ -199,7 +199,7 @@ for epoch in range(opt.niter):
             model_g_optimizer.step()
 
             t.set_postfix(total_loss='{:.6f}'.format(epoch_losses_total.avg))
-            t.update(len(inputs))
+            t.update(len(sharp))
 
     model_g_scheduler.step()
     model_d_scheduler.step()
@@ -212,17 +212,196 @@ for epoch in range(opt.niter):
     epoch_ssim = utils.AverageMeter()
 
     for data in valid_dataloader:
-        inputs, labels = data
+        blur, sharp = data
 
-        inputs = inputs.to(device)
-        labels = labels[0].to(device)
+        blur = blur.to(device)
+        sharp = sharp[0].to(device)
 
         with torch.no_grad():
-            preds = model_g(inputs)[0]
-            epoch_pnsr.update(utils.calc_pnsr(preds, labels), len(inputs))
-            epoch_ssim.update(utils.calc_ssim(preds, labels), len(inputs))
+            preds = model_g(sharp)
+            epoch_pnsr.update(utils.calc_pnsr(preds, blur[0]), len(blur))
+            epoch_ssim.update(utils.calc_ssim(preds, blur[0]), len(blur))
 
     print('eval psnr: {:.4f} eval ssim: {:.4f}'.format(epoch_pnsr.avg, epoch_ssim.avg))
 
 torch.save(model_g.state_dict(), '%s/models/bgan_generator_final.pth' % opt.output_dir)
 torch.save(model_d.state_dict(), '%s/models/bgan_discriminator_final.pth' % opt.output_dir)
+
+
+# dbgan
+# models init
+deblurmodel_g = DBGAN_G().to(device)
+
+# criterion init
+criterion_g = nn.MSELoss()
+criterion_d = nn.BCEWithLogitsLoss()
+feature_extractor = FeatureExtractor(torchvision.models.vgg19(pretrained=True)).to(device)
+
+deblurmodel_dg.apply(utils.weights_init)
+model_d.apply(utils.weights_init)
+
+# optim init
+if opt.adam:
+    model_g_optimizer = optim.Adam(deblurmodel_g.parameters(), lr=opt.lr, eps=1e-8, weight_decay=1)
+else:
+    model_g_optimizer = optim.RMSprop(deblurmodel_g.parameters(), lr=opt.lr)
+
+model_g_scheduler = optim.lr_scheduler.CosineAnnealingLR(model_g_optimizer, T_max=opt.niter)
+
+if opt.save_model_pdf:
+    from torchviz import make_dot
+    sampleData = torch.rand(1, 3, 128, 128).to(device)
+    out = deblurmodel_g(sampleData)
+    out_d = model_d(out)
+    d = make_dot(out_d)
+    d.render('dbgan_modelviz.pdf', view=False)
+
+# pre-train dbgan_g first
+for epoch in range(opt.niter):
+
+    deblurmodel_g.train()
+
+    epoch_losses = utils.AverageMeter()
+
+    with tqdm(total=(len(train_dataset) - len(train_dataset) % opt.batch_size)) as t:
+        t.set_description('epoch: {}/{}'.format(epoch+1, opt.niter))
+
+        for data in train_dataloader:
+            blur, sharp = data
+
+            blur = blur.to(device)
+            sharp = sharp.to(device)
+
+            sharp_fake = deblurmodel_g(blur)
+
+            model_g_optimizer.zero_grad()
+
+            loss = criterion_g(sharp_fake, sharp)
+            loss.backward()
+            epoch_losses.update(loss.item(), len(blur))
+
+            model_g_optimizer.step()
+
+            t.set_postfix(loss='{:.6f}'.format(epoch_losses.avg))
+            t.update(len(sharp))
+
+    model_g_scheduler.step()
+
+    # test
+    deblurmodel_g.eval()
+
+    epoch_pnsr = utils.AverageMeter()
+    epoch_ssim = utils.AverageMeter()
+
+    for data in valid_dataloader:
+        blur, sharp = data
+
+        blur = blur[0].to(device)
+        sharp = sharp.to(device)
+
+        with torch.no_grad():
+            preds = deblurmodel_g(blur)
+            epoch_pnsr.update(utils.calc_pnsr(preds, sharp[0]), len(sharp))
+            epoch_ssim.update(utils.calc_ssim(preds, sharp[0]), len(sharp))
+
+    print('eval psnr: {:.4f} eval ssim: {:.4f}'.format(epoch_pnsr.avg, epoch_ssim.avg))
+
+torch.save(deblurmodel_g.state_dict(), "%s/models/dbgan_generator_pretrain.pth" % opt.output_dir)
+
+# train dbgan_d
+if opt.adam:
+    model_g_optimizer = optim.Adam(deblurmodel_g.parameters(), lr=opt.lr*0.01, eps=1e-8, weight_decay=1)
+    model_d_optimizer = optim.Adam(model_d.parameters(), lr=opt.lr*0.01, eps=1e-8, weight_decay=1)
+else:
+    model_g_optimizer = optim.RMSprop(deblurmodel_g.parameters(), lr=opt.lr*0.01)
+    model_d_optimizer = optim.RMSprop(model_d.parameters(), lr=opt.lr*0.01)
+
+model_g_scheduler = optim.lr_scheduler.CosineAnnealingLR(model_g_optimizer, T_max=opt.niter)
+model_d_scheduler = optim.lr_scheduler.CosineAnnealingLR(model_d_optimizer, T_max=opt.niter)
+
+for epoch in range(opt.niter):
+
+    deblurmodel_g.train()
+    model_d.train()
+
+    epoch_losses_d = utils.AverageMeter()
+    epoch_losses_total = utils.AverageMeter()
+
+    with tqdm(total=(len(train_dataset) - len(train_dataset) % opt.batch_size)) as t:
+        t.set_description('epoch: {}/{}'.format(epoch+1, opt.niter))
+
+        for data in train_dataloader:
+            blur, sharp = data
+            sharp = sharp.to(device)
+
+            # get the sharp real and fake
+            sharp_real = Variable(sharp).to(device)
+            sharp_fake = deblurmodel_g(blur).to(device)
+
+            # get loss content
+            loss_content = criterion_g(sharp_real, sharp_fake)
+
+            # update model_d
+            target_real = Variable(torch.rand(opt.batch_size) * 0.5 + 0.7).to(device)
+            target_fake = Variable(torch.rand(opt.batch_size) * 0.3).to(device)
+
+            model_d.zero_grad()
+            loss_real_d = criterion_d(model_d(sharp_real), target_real)
+            loss_fake_d = criterion_d(model_d(Variable(sharp_fake)), target_fake)
+            loss_d = loss_real_d + loss_fake_d
+            loss_d.backward()
+            epoch_losses_d.update(loss_d.item(), len(inputs))
+
+            # update model g
+            deblurmodel_g.zero_grad()
+
+            # get the features of real blur images and fake blur images
+            features_real = Variable(feature_extractor(sharp_real.data)).to(device)
+            features_fake = feature_extractor(sharp_fake.data).to(device)
+
+            # get loss_perceptual
+            loss_perceptual = 0.
+            grams_real = [utils.gram(fmap) for fmap in features_real]
+            grams_fake = [utils.gram(fmap) for fmap in features_fake]
+            for i in range(len(grams_fake)):
+                loss_perceptual += criterion_g(grams_fake[i], grams_real[i][:len(sharp)])
+
+            # get loss_rbl
+            loss_rbl = - torch.log(loss_real_d - loss_fake_d) \
+                       - torch.log(1 - loss_fake_d - loss_real_d)
+
+            total_loss = 0.005 * loss_content + 0.01 * loss_rbl + loss_perceptual
+
+            total_loss.backward()
+            epoch_losses_total.update(total_loss.item(), len(blur))
+
+            model_g_optimizer.step()
+
+            t.set_postfix(total_loss='{:.6f}'.format(epoch_losses_total.avg))
+            t.update(len(blur))
+
+    model_g_scheduler.step()
+    model_d_scheduler.step()
+
+    # test
+    deblurmodel_g.eval()
+    model_d.eval()
+
+    epoch_pnsr = utils.AverageMeter()
+    epoch_ssim = utils.AverageMeter()
+
+    for data in valid_dataloader:
+        blur, sharp = data
+
+        blur = blur[0].to(device)
+        sharp = sharp.to(device)
+
+        with torch.no_grad():
+            preds = deblurmodel_g(blur)
+            epoch_pnsr.update(utils.calc_pnsr(preds, sharp[0]), len(sharp))
+            epoch_ssim.update(utils.calc_ssim(preds, sharp[0]), len(sharp))
+
+    print('eval psnr: {:.4f} eval ssim: {:.4f}'.format(epoch_pnsr.avg, epoch_ssim.avg))
+
+torch.save(deblurmodel_g.state_dict(), '%s/models/dbgan_generator_final.pth' % opt.output_dir)
+torch.save(model_d.state_dict(), '%s/models/dbgan_discriminator_final.pth' % opt.output_dir)
