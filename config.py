@@ -4,9 +4,11 @@ import argparse
 def get_options(parser=argparse.ArgumentParser()):
     parser.add_argument('--model_name', type=str, default="srresnet")
     parser.add_argument('--criterion_name', type=str, default="l1")
-    parser.add_argument('--train_file', type=str, required=True)
-    parser.add_argument('--valid_file', type=str, required=True)
-    parser.add_argument('--output_dir', type=str)
+    parser.add_argument('--blurtrain_file', type=str, required=True)
+    parser.add_argument('--deblurtrain_file', type=str, required=True)
+    parser.add_argument('--blurvalid_file', type=str, required=True)
+    parser.add_argument('--deblurvalid_file', type=str, required=True)
+    parser.add_argument('--output_dir', type=str, default="./output")
     parser.add_argument('--workers', type=int, default=4, help='number of data loading workers, you had better put it '
                                                                '4 times of your gpu')
     parser.add_argument('--batch_size', type=int, default=64, help='input batch size, default=64')

@@ -38,7 +38,10 @@ manual_seed = opt.seed
 random.seed(manual_seed)
 torch.manual_seed(manual_seed)
 
+
+# ----------------------
 # bgan
+# ----------------------
 # models init
 model_g = BGAN_G().to(device)
 model_d = GAN_D().to(device)
@@ -49,7 +52,7 @@ criterion_d = nn.BCEWithLogitsLoss()
 feature_extractor = FeatureExtractor(torchvision.models.vgg19(pretrained=True)).to(device)
 
 # dataset init, train file need .h5
-train_dataset = dataset.TrainDataset(opt.train_file)
+train_dataset = dataset.TrainDataset(opt.blurtrain_file)
 train_dataloader = dataloader.DataLoader(
                                     dataset=train_dataset,
                                     batch_size=opt.batch_size, 
@@ -59,7 +62,7 @@ train_dataloader = dataloader.DataLoader(
                                     drop_last=True
                                     )
 
-valid_dataset = dataset.ValidDataset(opt.valid_file)
+valid_dataset = dataset.ValidDataset(opt.blurvalid_file)
 valid_dataloader = dataloader.DataLoader(dataset=valid_dataset, batch_size=1)
 
 model_g.apply(utils.weights_init)
@@ -172,7 +175,7 @@ for epoch in range(opt.niter):
             loss_fake_d = criterion_d(model_d(Variable(blur_fake)), target_fake)
             loss_d = loss_real_d + loss_fake_d
             loss_d.backward()
-            epoch_losses_d.update(loss_d.item(), len(inputs))
+            epoch_losses_d.update(loss_d.item(), len(blur))
 
             # update model g
             model_g.zero_grad()
@@ -227,32 +230,48 @@ for epoch in range(opt.niter):
 torch.save(model_g.state_dict(), '%s/models/bgan_generator_final.pth' % opt.output_dir)
 torch.save(model_d.state_dict(), '%s/models/bgan_discriminator_final.pth' % opt.output_dir)
 
+del train_dataset
+del train_dataloader
+del valid_dataset
+del valid_dataloader
 
+# ----------------------
 # dbgan
+# ----------------------
 # models init
 deblurmodel_g = DBGAN_G().to(device)
+deblurmodel_d = GAN_D().to(device)
 
-# criterion init
-criterion_g = nn.MSELoss()
-criterion_d = nn.BCEWithLogitsLoss()
-feature_extractor = FeatureExtractor(torchvision.models.vgg19(pretrained=True)).to(device)
+# dataset init, train file need .h5
+train_dataset = dataset.TrainDatasetDeblur(opt.deblurtrain_file)
+train_dataloader = dataloader.DataLoader(
+                                    dataset=train_dataset,
+                                    batch_size=opt.batch_size, 
+                                    shuffle=True, 
+                                    num_workers=opt.workers, 
+                                    pin_memory=True, 
+                                    drop_last=True
+                                    )
 
-deblurmodel_dg.apply(utils.weights_init)
-model_d.apply(utils.weights_init)
+valid_dataset = dataset.ValidDatasetDeblur(opt.deblurvalid_file)
+valid_dataloader = dataloader.DataLoader(dataset=valid_dataset, batch_size=1)
+
+deblurmodel_g.apply(utils.weights_init)
+deblurmodel_d.apply(utils.weights_init)
 
 # optim init
 if opt.adam:
-    model_g_optimizer = optim.Adam(deblurmodel_g.parameters(), lr=opt.lr, eps=1e-8, weight_decay=1)
+    deblurmodel_g_optimizer = optim.Adam(deblurmodel_g.parameters(), lr=opt.lr, eps=1e-8, weight_decay=1)
 else:
-    model_g_optimizer = optim.RMSprop(deblurmodel_g.parameters(), lr=opt.lr)
+    deblurmodel_g_optimizer = optim.RMSprop(deblurmodel_g.parameters(), lr=opt.lr)
 
-model_g_scheduler = optim.lr_scheduler.CosineAnnealingLR(model_g_optimizer, T_max=opt.niter)
+deblurmodel_g_scheduler = optim.lr_scheduler.CosineAnnealingLR(deblurmodel_g_optimizer, T_max=opt.niter)
 
 if opt.save_model_pdf:
     from torchviz import make_dot
     sampleData = torch.rand(1, 3, 128, 128).to(device)
     out = deblurmodel_g(sampleData)
-    out_d = model_d(out)
+    out_d = deblurmodel_d(out)
     d = make_dot(out_d)
     d.render('dbgan_modelviz.pdf', view=False)
 
@@ -266,11 +285,12 @@ for epoch in range(opt.niter):
     with tqdm(total=(len(train_dataset) - len(train_dataset) % opt.batch_size)) as t:
         t.set_description('epoch: {}/{}'.format(epoch+1, opt.niter))
 
-        for data in train_dataloader:
-            blur, sharp = data
+        for sharp in train_dataloader:
 
-            blur = blur.to(device)
             sharp = sharp.to(device)
+            sharp_noise = utils.concat_noise(sharp, size=(4, 128, 128), channels=sharp.size()[0])
+            # the blur image is made by bgan_g
+            blur = model_g(sharp_noise)
 
             sharp_fake = deblurmodel_g(blur)
 
@@ -310,19 +330,19 @@ torch.save(deblurmodel_g.state_dict(), "%s/models/dbgan_generator_pretrain.pth" 
 
 # train dbgan_d
 if opt.adam:
-    model_g_optimizer = optim.Adam(deblurmodel_g.parameters(), lr=opt.lr*0.01, eps=1e-8, weight_decay=1)
-    model_d_optimizer = optim.Adam(model_d.parameters(), lr=opt.lr*0.01, eps=1e-8, weight_decay=1)
+    deblurmodel_g_optimizer = optim.Adam(deblurmodel_g.parameters(), lr=opt.lr*0.01, eps=1e-8, weight_decay=1)
+    deblurmodel_d_optimizer = optim.Adam(deblurmodel_d.parameters(), lr=opt.lr*0.01, eps=1e-8, weight_decay=1)
 else:
-    model_g_optimizer = optim.RMSprop(deblurmodel_g.parameters(), lr=opt.lr*0.01)
-    model_d_optimizer = optim.RMSprop(model_d.parameters(), lr=opt.lr*0.01)
+    deblurmodel_g_optimizer = optim.RMSprop(deblurmodel_g.parameters(), lr=opt.lr*0.01)
+    deblurmodel_d_optimizer = optim.RMSprop(deblurmodel_d.parameters(), lr=opt.lr*0.01)
 
-model_g_scheduler = optim.lr_scheduler.CosineAnnealingLR(model_g_optimizer, T_max=opt.niter)
-model_d_scheduler = optim.lr_scheduler.CosineAnnealingLR(model_d_optimizer, T_max=opt.niter)
+deblurmodel_g_scheduler = optim.lr_scheduler.CosineAnnealingLR(deblurmodel_g_optimizer, T_max=opt.niter)
+deblurmodel_d_scheduler = optim.lr_scheduler.CosineAnnealingLR(deblurmodel_d_optimizer, T_max=opt.niter)
 
 for epoch in range(opt.niter):
 
     deblurmodel_g.train()
-    model_d.train()
+    deblurmodel_d.train()
 
     epoch_losses_d = utils.AverageMeter()
     epoch_losses_total = utils.AverageMeter()
@@ -330,9 +350,11 @@ for epoch in range(opt.niter):
     with tqdm(total=(len(train_dataset) - len(train_dataset) % opt.batch_size)) as t:
         t.set_description('epoch: {}/{}'.format(epoch+1, opt.niter))
 
-        for data in train_dataloader:
-            blur, sharp = data
+        for sharp in train_dataloader:
+
             sharp = sharp.to(device)
+            sharp_noise = utils.concat_noise(sharp, size=(4, 128, 128), channels=sharp.size()[0])
+            blur = model_g(sharp_noise)
 
             # get the sharp real and fake
             sharp_real = Variable(sharp).to(device)
@@ -346,11 +368,11 @@ for epoch in range(opt.niter):
             target_fake = Variable(torch.rand(opt.batch_size) * 0.3).to(device)
 
             model_d.zero_grad()
-            loss_real_d = criterion_d(model_d(sharp_real), target_real)
-            loss_fake_d = criterion_d(model_d(Variable(sharp_fake)), target_fake)
+            loss_real_d = criterion_d(deblurmodel_d(sharp_real), target_real)
+            loss_fake_d = criterion_d(deblurmodel_d(Variable(sharp_fake)), target_fake)
             loss_d = loss_real_d + loss_fake_d
             loss_d.backward()
-            epoch_losses_d.update(loss_d.item(), len(inputs))
+            epoch_losses_d.update(loss_d.item(), len(sharp))
 
             # update model g
             deblurmodel_g.zero_grad()
@@ -380,21 +402,21 @@ for epoch in range(opt.niter):
             t.set_postfix(total_loss='{:.6f}'.format(epoch_losses_total.avg))
             t.update(len(blur))
 
-    model_g_scheduler.step()
-    model_d_scheduler.step()
+    deblurmodel_g_scheduler.step()
+    deblurmodel_d_scheduler.step()
 
     # test
     deblurmodel_g.eval()
-    model_d.eval()
+    deblurmodel_d.eval()
 
     epoch_pnsr = utils.AverageMeter()
     epoch_ssim = utils.AverageMeter()
 
     for data in valid_dataloader:
-        blur, sharp = data
+        sharp = data
 
-        blur = blur[0].to(device)
         sharp = sharp.to(device)
+        blur = model_g(sharp)[0]
 
         with torch.no_grad():
             preds = deblurmodel_g(blur)
@@ -404,4 +426,4 @@ for epoch in range(opt.niter):
     print('eval psnr: {:.4f} eval ssim: {:.4f}'.format(epoch_pnsr.avg, epoch_ssim.avg))
 
 torch.save(deblurmodel_g.state_dict(), '%s/models/dbgan_generator_final.pth' % opt.output_dir)
-torch.save(model_d.state_dict(), '%s/models/dbgan_discriminator_final.pth' % opt.output_dir)
+torch.save(deblurmodel_d.state_dict(), '%s/models/dbgan_discriminator_final.pth' % opt.output_dir)

@@ -13,7 +13,7 @@ sys.path.append("..")
 import utils
 
 
-def make_h5(data_path, h5_path, size_image=128, stride=10):
+def make_blur(data_path, h5_path, size_image=128, stride=10):
     # TODO(jkhu29): data amplification, like: totate random angle
     imgs_blur = []
     imgs_sharp = []
@@ -27,22 +27,43 @@ def make_h5(data_path, h5_path, size_image=128, stride=10):
                                 int(y): int(y + size_image)]
                 img_blur = noise[int(x): int(x + size_image),
                                  int(y): int(y + size_image)]
-                imgs_blur.append(img_blur.transpose(2, 0, 1))
                 imgs_sharp.append(img_sharp.transpose(2, 0, 1))
+                imgs_blur.append(img_blur.transpose(2, 0, 1))
 
-    print('begin to save h5 file to %s' % h5_path)
+    print('begin to save blur data file to %s' % h5_path)
     with h5py.File(h5_path, 'w') as f:
-        f.create_dataset('blur', data=np.array(imgs_blur, dtype=np.float32))
         f.create_dataset('sharp', data=np.array(imgs_sharp, dtype=np.float32))
+        f.create_dataset('blur', data=np.array(imgs_blur, dtype=np.float32))
+    print('saved')
+
+
+def make_deblur(data_path, h5_path, size_image=128, stride=10):
+    imgs = []
+    for img_name in os.listdir(data_path):
+        img = cv2.imread(os.path.join(data_path, img_name)) / 255.
+
+        for x in np.arange(0, img.shape[0] - size_image + 1, stride):
+            for y in np.arange(0, img.shape[1] - size_image + 1, stride):
+                img_part = img[int(x): int(x + size_image),
+                               int(y): int(y + size_image)]
+                imgs.append(img_part.transpose(2, 0, 1))
+
+    print('begin to save deblur data file to %s' % h5_path)
+    with h5py.File(h5_path, 'w') as f:
+        f.create_dataset('sharp', data=np.array(imgs, dtype=np.float32))
     print('saved')
 
 
 def get_options():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train_path', type=str, required=True)
-    parser.add_argument('--valid_path', type=str, required=True)
-    parser.add_argument('--train_data', type=str, required=True)
-    parser.add_argument('--valid_data', type=str, required=True)
+    parser.add_argument('--blur_train_path', type=str, default="./blur_train.h5")
+    parser.add_argument('--blur_valid_path', type=str, default="./blur_valid.h5")
+    parser.add_argument('--blur_train_data', type=str, default="./gopro/train")
+    parser.add_argument('--blur_valid_data', type=str, default="./gopro/test")
+    parser.add_argument('--deblur_train_path', type=str, default="./deblur_train.h5")
+    parser.add_argument('--deblur_valid_path', type=str, default="./deblur_valid.h5")
+    parser.add_argument('--deblur_train_data', type=str, default="./gopro/train")
+    parser.add_argument('--deblur_valid_data', type=str, default="./gopro/test")
     parser.add_argument('--size_image', type=int, default=128, help='the size of output image, default=128*128')
     parser.add_argument('--stride', type=int, default=10, help='stride when making dataset, default=10')
     opt = parser.parse_args()
@@ -53,16 +74,28 @@ def get_options():
 if __name__ == '__main__':
     opt = get_options()
 
-    train_path = opt.train_path
-    valid_path = opt.valid_path
-    train_data = opt.train_path
-    valid_data = opt.valid_data
+    blur_train_path = opt.blur_train_path
+    deblur_train_path = opt.deblur_train_path
+    blur_valid_path = opt.blur_valid_path
+    deblur_valid_path = opt.deblur_valid_path
+    blur_train_data = opt.blur_train_path
+    deblur_train_data = opt.deblur_train_path
+    blur_valid_data = opt.blur_valid_data
+    deblur_valid_data = opt.deblur_valid_data
 
-    make_h5(
-        train_data, train_path,
+    make_blur(
+        blur_train_data, blur_train_path,
         size_image=opt.size_image, stride=opt.stride
         )
-    make_h5(
-        valid_data, valid_path,
+    make_blur(
+        blur_valid_data, blur_valid_path,
+        size_image=opt.size_image, stride=opt.stride
+        )
+    make_deblur(
+        deblur_train_data, deblur_train_path,
+        size_image=opt.size_image, stride=opt.stride
+        )
+    make_deblur(
+        deblur_valid_data, deblur_valid_path,
         size_image=opt.size_image, stride=opt.stride
         )

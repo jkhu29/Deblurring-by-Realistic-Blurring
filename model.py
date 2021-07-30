@@ -2,15 +2,15 @@ import torch
 import torch.nn as nn
 
 
-def _make_layer(block, num_layers, *args):
+def _make_layer(block, num_layers, **kwargs):
     layers = []
     for _ in range(num_layers):
-        layers.append(block(*args))
+        layers.append(block(**kwargs))
     return nn.Sequential(*layers)
 
 
 class ConvReLU(nn.Module):
-    """docstring for ConvReLU"""
+    """ConvReLU: conv 64 * 3 * 3 + leakyrelu"""
     def __init__(self, in_channels, out_channels):
         super(ConvReLU, self).__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
@@ -42,15 +42,19 @@ class BGAN_G(nn.Module):
     def __init__(self, in_channels=3, out_channels=64, num_resblocks=9):
         super(BGAN_G, self).__init__()
 
+        # because of the noise concat
+        self.in_channels = in_channels + 4
         self.num_resblocks = num_resblocks
 
-        self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=in_channels, out_channels=out_channels)
-        self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, channels=channels)
+        self.conv1 = nn.Conv2d(self.in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
-        self.conv2 = nn.Conv2d(in_channels=channels, out_channels=channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(channels)
+        self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels, out_channels=out_channels)
+        self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, channels=out_channels)
 
-        self.conv3 = nn.Conv2d(in_channels=channels, out_channels=channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+
+        self.conv3 = nn.Conv2d(in_channels=out_channels, out_channels=in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x):
         # TODO(jkhu29): try different res
@@ -67,8 +71,9 @@ class BGAN_G(nn.Module):
 
 class DBGAN_G(BGAN_G):
     """the G of DBGAN"""
-    def __init__(self, num_resblocks=16):
+    def __init__(self, in_channels=3, num_resblocks=16):
         super(DBGAN_G, self).__init__()
+        self.in_channels = in_channels
         self.num_resblocks = num_resblocks
 
 

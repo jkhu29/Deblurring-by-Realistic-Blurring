@@ -153,7 +153,7 @@ def upsampling(img, x, y):
     return func(img)
 
 
-def generate_noise(size, channels=1, type='gaussian', scale=1):
+def generate_noise(size, channels=1, type='gaussian', scale=2):
     if type == 'gaussian':
         noise = torch.randn(channels, size[0], round(size[1]/scale), round(size[2]/scale))
         noise = upsampling(noise, size[1], size[2])
@@ -166,7 +166,8 @@ def generate_noise(size, channels=1, type='gaussian', scale=1):
     return noise
 
 
-def concat_noise(img, *args):
-    noise = generate_noise(*args)
-    img = torch.cat((img, noise), 1)
+def concat_noise(img, **kwargs):
+    noise = generate_noise(**kwargs)
+    noise = noise.to(img.device)
+    mixed_img = torch.cat((img, noise), 1)
     return mixed_img
