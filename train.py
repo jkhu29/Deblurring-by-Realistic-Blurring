@@ -78,7 +78,7 @@ model_g_scheduler = optim.lr_scheduler.CosineAnnealingLR(model_g_optimizer, T_ma
 
 if opt.save_model_pdf:
     from torchviz import make_dot
-    sampleData = torch.rand(1, 3, 128, 128).to(device)
+    sampleData = torch.rand(1, 3+4, 128, 128).to(device)
     out = model_g(sampleData)
     out_d = model_d(out)
     d = make_dot(out_d)
@@ -99,6 +99,7 @@ for epoch in range(opt.niter):
 
             blur = blur.to(device)
             sharp = sharp.to(device)
+            noise = utils.concat_noise(sharp, (4, 128, 128), sharp.size()[0])
 
             blur_fake = model_g(sharp)
 
@@ -161,10 +162,11 @@ for epoch in range(opt.niter):
         for data in train_dataloader:
             blur, sharp = data
             sharp = sharp.to(device)
+            noise = utils.concat_noise(sharp, (4, 128, 128), sharp.size()[0])
 
             # get the blur real and fake
             blur_real = Variable(blur).to(device)
-            blur_fake = model_g(sharp).to(device)
+            blur_fake = model_g(noise).to(device)
 
             # update model_d
             target_real = Variable(torch.rand(opt.batch_size) * 0.5 + 0.7).to(device)
@@ -192,8 +194,8 @@ for epoch in range(opt.niter):
                 loss_perceptual += criterion_g(grams_fake[i], grams_real[i][:len(blur)])
 
             # get loss_rbl
-            loss_rbl = - torch.log(loss_real_d - loss_fake_d) \
-                       - torch.log(1 - loss_fake_d - loss_real_d)
+            loss_rbl = - torch.log(abs(loss_real_d - loss_fake_d)) - \
+                         torch.log(abs(1 - loss_fake_d - loss_real_d))
             total_loss = 0.01 * loss_rbl + loss_perceptual
 
             total_loss.backward()
@@ -219,9 +221,10 @@ for epoch in range(opt.niter):
 
         blur = blur.to(device)
         sharp = sharp[0].to(device)
+        noise = utils.concat_noise(sharp, (4, 128, 128), sharp.size()[0])
 
         with torch.no_grad():
-            preds = model_g(sharp)
+            preds = model_g(noise)
             epoch_pnsr.update(utils.calc_pnsr(preds, blur[0]), len(blur))
             epoch_ssim.update(utils.calc_ssim(preds, blur[0]), len(blur))
 

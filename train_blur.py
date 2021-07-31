@@ -12,7 +12,7 @@ import torchvision
 
 from tqdm import tqdm
 
-from model import BGAN_G, GAN_D
+from model import BGAN_G, DBGAN_G, GAN_D
 import config
 import dataset
 import utils
@@ -41,7 +41,7 @@ torch.manual_seed(manual_seed)
 
 # cyclegan for bgan, init
 model_g_x2y = BGAN_G().to(device)
-model_g_y2x = BGAN_G().to(device)
+model_g_y2x = DBGAN_G().to(device)
 model_d_x = GAN_D().to(device)
 model_d_y = GAN_D().to(device)
 
@@ -102,6 +102,9 @@ for epoch in range(opt.niter):
             blur_real = blur.to(device)
             sharp_real = sharp.to(device)
 
+            blur_noise = utils.concat_noise(blur_real, (4, 128, 128), blur_real.size()[0])
+            sharp_noise = utils.concat_noise(sharp_real, (4, 128, 128), sharp_real.size()[0])
+
             # --------------------
             # generator train(2 * model_g)
             # --------------------
@@ -110,14 +113,14 @@ for epoch in range(opt.niter):
             optimizer_g.zero_grad()
 
             # loss identity(ATTN!: `a_same = model_a2b(a_real)`)
-            blur_same = model_g_x2y(blur_real)             # model_g_x2y: sharp --> blur
+            blur_same = model_g_x2y(blur_noise)            # model_g_x2y: sharp --> blur
             loss_identity_blur = criterion_identity(blur_same, blur_real) * 5.
 
             sharp_fake = model_g_y2x(sharp_real)           # model_g_y2x: blur --> sharp
             loss_identity_sharp = criterion_identity(sharp_fake, sharp_real) * 5.
 
             # loss gan
-            blur_fake = model_g_x2y(sharp_real)
+            blur_fake = model_g_x2y(sharp_noise)
             blur_pred_fake = model_d_y(blur_fake)          # get blur features
             loss_gan_x2y = criterion_generate(blur_pred_fake, target_real)
 
@@ -125,8 +128,10 @@ for epoch in range(opt.niter):
             sharp_pred_fake = model_d_x(sharp_fake)        # get sharp features
             loss_gan_y2x = criterion_generate(sharp_pred_fake, target_real)
 
+            sharp_fake_noise = utils.concat_noise(sharp_fake, (4, 128, 128), blur_real.size()[0])
+
             # loss cycle
-            blur_recover = model_g_x2y(sharp_fake)         # recover the blur: blur->sharp->blur
+            blur_recover = model_g_x2y(sharp_fake_noise)   # recover the blur: blur->sharp->blur
             loss_cycle_x2y = criterion_cycle(blur_recover, blur_real) * 10.
 
             sharp_recover = model_g_y2x(blur_fake)         # recover the sharp: sharp->blur->sharp
@@ -154,13 +159,13 @@ for epoch in range(opt.niter):
             loss_sharp_real = criterion_generate(pred_sharp_real, target_real)
 
             # loss fake
-            sharp_fake_ = copy.deepcopy(sharp_fake)
+            sharp_fake_ = copy.deepcopy(sharp_fake.data)
             pred_sharp_fake = model_d_x(sharp_fake_.detach())
             loss_sharp_fake = criterion_generate(pred_sharp_fake, target_fake)
 
-            # loss rbl
-            loss_sharp_rbl = - torch.log(loss_sharp_real - loss_sharp_fake) - \
-                               torch.log(1 - loss_sharp_fake - loss_sharp_real)
+            # loss rbl TODO(jkhu29): something strange
+            loss_sharp_rbl = - torch.log(abs(loss_sharp_real - loss_sharp_fake)) - \
+                               torch.log(abs(1 - loss_sharp_fake - loss_sharp_real))
 
             # loss total
             loss_total_d_x = (loss_sharp_real + loss_sharp_fake) * 0.5 + loss_sharp_rbl * 0.01
@@ -179,47 +184,30 @@ for epoch in range(opt.niter):
             loss_blur_real = criterion_generate(pred_blur_real, target_real)
 
             # loss fake
-            blur_fake_ = copy.deepcopy(blur_fake)
+            blur_fake_ = copy.deepcopy(blur_fake.data)
             pred_blur_fake = model_d_y(blur_fake_.detach())
             loss_blur_fake = criterion_generate(pred_blur_fake, target_fake)
 
             # loss rbl
-            loss_blur_rbl = - torch.log(loss_blur_real - loss_blur_fake) - \
-                              torch.log(1 - loss_blur_fake - loss_blur_real)
+            loss_blur_rbl = - torch.log(abs(loss_blur_real - loss_blur_fake)) - \
+                              torch.log(abs(1 - loss_blur_fake - loss_blur_real))
 
             # loss total
-            loss_total_d_y = (loss_blur_real + loss_blur_fake) * 0.5 + 0.01 * loss_blur_rbl
+            loss_total_d_y = (loss_blur_real + loss_blur_fake) * 0.5 + loss_blur_rbl * 0.01
             loss_total_d_y.backward()
             epoch_losses_d_y.update(loss_total_d_y.item(), len(sharp))
 
             optimizer_d_y.step()
 
-            t.set_postfix(loss_g='{:.6f}'.format(epoch_losses_g.avg))
-            t.set_postfix(loss_d_sharp='{:.6f}'.format(epoch_losses_d_x.avg))
-            t.set_postfix(loss_d_blur='{:.6f}'.format(epoch_losses_d_y.avg))
+            t.set_postfix(
+                loss_g='{:.6f}'.format(epoch_losses_g.avg), 
+                loss_d_sharp='{:.6f}'.format(epoch_losses_d_x.avg), 
+                loss_d_blur='{:.6f}'.format(epoch_losses_d_y.avg)
+                )
             t.update(len(sharp))
 
     model_scheduler_g.step()
     model_scheduler_d_x.step()
     model_scheduler_d_y.step()
 
-    model_g_x2y.eval()
-    model_g_y2x.eval()
-    model_d_x.eval()
-    model_d_y.eval()
-
-    epoch_pnsr = utils.AverageMeter()
-    epoch_ssim = utils.AverageMeter()
-
-    for data in valid_dataloader:
-        blur, sharp = data
-
-        blur = blur.to(device)
-        sharp = sharp[0].to(device)
-
-        with torch.no_grad():
-            preds = model_g_x2y(sharp)
-            epoch_pnsr.update(utils.calc_pnsr(preds, blur[0]), len(blur))
-            epoch_ssim.update(utils.calc_ssim(preds, blur[0]), len(blur))
-
-    print('eval psnr: {:.4f} eval ssim: {:.4f}'.format(epoch_pnsr.avg, epoch_ssim.avg))
+torch.save(model_g.state_dict(), "%s/models/bgan_generator.pth" % opt.output_dir)

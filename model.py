@@ -69,10 +69,18 @@ class BGAN_G(nn.Module):
 
 class DBGAN_G(BGAN_G):
     """the G of DBGAN"""
-    def __init__(self, in_channels=3, num_resblocks=16):
+    def __init__(self, in_channels=3, out_channels=64, num_resblocks=16):
         super(DBGAN_G, self).__init__()
         self.in_channels = in_channels
         self.num_resblocks = num_resblocks
+
+        self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=self.in_channels, out_channels=out_channels)
+        self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, channels=out_channels)
+
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+
+        self.conv3 = nn.Conv2d(in_channels=out_channels, out_channels=in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
 
 class GAN_D(nn.Module):

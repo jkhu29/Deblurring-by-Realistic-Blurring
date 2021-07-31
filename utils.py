@@ -172,5 +172,5 @@ def concat_noise(img, *args):
         noise = noise.to(img.device)
     else:
         img = torch.from_numpy(img.transpose(2, 0, 1)).unsqueeze(0)
-    mixed_img = torch.cat((img, noise), 1).squeeze()
-    return mixed_img.numpy()
+    mixed_img = torch.cat((img, noise), 1)
+    return mixed_img

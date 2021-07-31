@@ -67,8 +67,7 @@ def make_cycle_blur(data1_path, data2_path, h5_path, size_image=128, stride=100)
             for y in np.arange(0, img.shape[1] - size_image + 1, stride):
                 img_part = img[int(x): int(x + size_image),
                                int(y): int(y + size_image)]
-                noise = utils.concat_noise(img_part, (4, size_image, size_image))
-                blur_imgs.append(noise)
+                blur_imgs.append(img_part.transpose(2, 0, 1))
 
     img2_names = os.listdir(data2_path)
 
