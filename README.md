@@ -47,7 +47,7 @@ Q: 为什么数据集可以不匹配？
 
 A: 原文中并没有给出明确回答，个人想法为参考了CycleGAN的思路(回译)
 
-> 本代码将实现配对版本与非配对版本
+> 本代码将实现配对版本(train.py)与非配对版本(train_blur.py and train_deblur.py)
 
 ### DBGAN
 
@@ -74,5 +74,20 @@ A: 原文中并没有给出明确回答，个人想法为参考了CycleGAN的思
   pages={2737--2746},
   year={2020}
 }
+```
+
+## Usage
+
+### cycle
+
+make data:
+
+```
+python dataset_make.py --blur_train_path /home/jkhu29/img-edit/deblur/cycle_train.h5 \
+	--blur_valid_path /home/jkhu29/img-edit/deblur/cycle_valid.h5 \
+	--blur_train_data /home/jkhu29/img-edit/deblur/dataset_make/RWBI-Dataset/train/ \
+	--blur_valid_data /home/jkhu29/img-edit/deblur/dataset_make/RWBI-Dataset/valid/ \
+	--deblur_train_data /home/jkhu29/img-edit/deblur/dataset_make/gopro/small/train/ \
+	--deblur_valid_data /home/jkhu29/img-edit/deblur/dataset_make/gopro/small/valid/
 ```
 

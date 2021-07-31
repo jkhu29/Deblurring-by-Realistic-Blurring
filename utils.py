@@ -9,9 +9,9 @@ def weights_init(model):
     """init from article"""
     for m in model.modules():
         if isinstance(m, nn.Conv2d):
-            nn.init.kaiming_normal_(m.weight, 0., 0.01)
+            nn.init.kaiming_normal_(m.weight, 0.1)
         elif isinstance(m, nn.BatchNorm2d):
-            nn.init.constant_(m.weight, 1.)
+            nn.init.constant_(m.weight, 0.1)
             nn.init.constant_(m.bias, 0)
 
 
@@ -166,8 +166,11 @@ def generate_noise(size, channels=1, type='gaussian', scale=2):
     return noise
 
 
-def concat_noise(img, **kwargs):
-    noise = generate_noise(**kwargs)
-    noise = noise.to(img.device)
-    mixed_img = torch.cat((img, noise), 1)
-    return mixed_img
+def concat_noise(img, *args):
+    noise = generate_noise(*args)
+    if isinstance(img, torch.Tensor):
+        noise = noise.to(img.device)
+    else:
+        img = torch.from_numpy(img.transpose(2, 0, 1)).unsqueeze(0)
+    mixed_img = torch.cat((img, noise), 1).squeeze()
+    return mixed_img.numpy()

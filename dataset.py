@@ -33,7 +33,7 @@ class ValidDataset(Dataset):
 
 class TrainDatasetDeblur(Dataset):
     def __init__(self, h5_file):
-        super(ValidDataset, self).__init__()
+        super(TrainDatasetDeblur, self).__init__()
         self.h5_file = h5_file
 
     def __getitem__(self, idx):
@@ -47,7 +47,7 @@ class TrainDatasetDeblur(Dataset):
 
 class ValidDatasetDeblur(Dataset):
     def __init__(self, h5_file):
-        super(ValidDataset, self).__init__()
+        super(ValidDatasetDeblur, self).__init__()
         self.h5_file = h5_file
 
     def __getitem__(self, idx):

@@ -27,7 +27,7 @@ class ResBlock(nn.Module):
     def __init__(self, channels=64):
         super(ResBlock, self).__init__()
 
-        self.conv_relu = _make_layer(ConvReLU, num_layers=5, in_channels=3, out_channels=channels)
+        self.conv_relu = _make_layer(ConvReLU, num_layers=5, in_channels=channels, out_channels=channels)
         self.conv = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x):
@@ -46,9 +46,7 @@ class BGAN_G(nn.Module):
         self.in_channels = in_channels + 4
         self.num_resblocks = num_resblocks
 
-        self.conv1 = nn.Conv2d(self.in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-
-        self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels, out_channels=out_channels)
+        self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=self.in_channels, out_channels=out_channels)
         self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, channels=out_channels)
 
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
@@ -77,7 +75,7 @@ class DBGAN_G(BGAN_G):
         self.num_resblocks = num_resblocks
 
 
-class GAN_D(object):
+class GAN_D(nn.Module):
     """GAN_D: VGG19"""
     def __init__(self):
         super(GAN_D, self).__init__()

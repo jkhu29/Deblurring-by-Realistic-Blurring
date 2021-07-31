@@ -363,7 +363,7 @@ for epoch in range(opt.niter):
             # get loss content
             loss_content = criterion_g(sharp_real, sharp_fake)
 
-            # update model_d
+            # update model d
             target_real = Variable(torch.rand(opt.batch_size) * 0.5 + 0.7).to(device)
             target_fake = Variable(torch.rand(opt.batch_size) * 0.3).to(device)
 
@@ -389,8 +389,8 @@ for epoch in range(opt.niter):
                 loss_perceptual += criterion_g(grams_fake[i], grams_real[i][:len(sharp)])
 
             # get loss_rbl
-            loss_rbl = - torch.log(loss_real_d - loss_fake_d) \
-                       - torch.log(1 - loss_fake_d - loss_real_d)
+            loss_rbl = - torch.log(loss_real_d - loss_fake_d) - \
+                         torch.log(1 - loss_fake_d - loss_real_d)
 
             total_loss = 0.005 * loss_content + 0.01 * loss_rbl + loss_perceptual
 
