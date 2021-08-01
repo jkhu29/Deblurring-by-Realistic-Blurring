@@ -8,6 +8,7 @@ from torch import optim
 from torch.utils.data import dataloader
 from torch.autograd import Variable
 import torchvision
+from torch.cuda.amp import autocast as autocast
 
 from tqdm import tqdm
 
@@ -73,7 +74,7 @@ deblurmodel_g.apply(utils.weights_init)
 deblurmodel_d.apply(utils.weights_init)
 
 # criterion init
-criterion_g = nn.L1Loss()
+criterion_g = nn.SmoothL1Loss()
 criterion_d = nn.BCEWithLogitsLoss()
 feature_extractor = FeatureExtractor(torchvision.models.vgg19(pretrained=True)).to(device)
 
@@ -84,6 +85,9 @@ else:
     deblurmodel_g_optimizer = optim.RMSprop(deblurmodel_g.parameters(), lr=opt.lr)
 
 deblurmodel_g_scheduler = optim.lr_scheduler.CosineAnnealingLR(deblurmodel_g_optimizer, T_max=opt.niter)
+
+# amp init
+scaler_g = torch.cuda.amp.GradScaler()
 
 # pre-train dbgan_g first
 for epoch in range(opt.niter):
@@ -99,18 +103,23 @@ for epoch in range(opt.niter):
 
             sharp = sharp.to(device)
             sharp_noise = utils.concat_noise(sharp, (4, 128, 128), sharp.size()[0])
-            # the blur image is made by bgan_g
-            blur = model_blur(sharp_noise)
-
-            sharp_fake = deblurmodel_g(blur)
-
+            
             deblurmodel_g_optimizer.zero_grad()
 
-            loss = criterion_g(sharp_fake, sharp)
-            loss.backward()
-            epoch_losses.update(loss.item(), len(blur))
+            with autocast():
+                # the blur image is made by bgan_g
+                blur = model_blur(sharp_noise)
+                sharp_fake = deblurmodel_g(blur)
+                loss = criterion_g(sharp_fake, sharp)
 
-            deblurmodel_g_optimizer.step()
+            scaler_g.scale(loss).backward()
+            scaler_g.step(deblurmodel_g_optimizer)
+            epoch_losses.update(scaler_g.scale(loss).item(), len(sharp))
+            scaler_g.update()
+
+            # loss.backward()
+            # epoch_losses.update(loss.item(), len(blur))
+            # deblurmodel_g_optimizer.step()
 
             t.set_postfix(loss='{:.6f}'.format(epoch_losses.avg))
             t.update(len(sharp))
@@ -121,18 +130,23 @@ torch.save(deblurmodel_g.state_dict(), "%s/models/dbgan_generator_pretrain.pth" 
 
 del deblurmodel_g_optimizer
 del deblurmodel_g_scheduler
+del scaler_g
 
 # train dbgan_d
 if opt.adam:
-    deblurmodel_g_optimizer = optim.Adam(deblurmodel_g.parameters(), lr=opt.lr*0.01, eps=1e-8, weight_decay=1)
-    deblurmodel_d_optimizer = optim.Adam(deblurmodel_d.parameters(), lr=opt.lr*0.01, eps=1e-8, weight_decay=1)
+    deblurmodel_g_optimizer = optim.Adam(deblurmodel_g.parameters(), lr=opt.lr*0.3, eps=1e-8, weight_decay=1)
+    deblurmodel_d_optimizer = optim.Adam(deblurmodel_d.parameters(), lr=opt.lr*0.3, eps=1e-8, weight_decay=1)
 else:
-    deblurmodel_g_optimizer = optim.RMSprop(deblurmodel_g.parameters(), lr=opt.lr*0.01)
-    deblurmodel_d_optimizer = optim.RMSprop(deblurmodel_d.parameters(), lr=opt.lr*0.01)
+    deblurmodel_g_optimizer = optim.RMSprop(deblurmodel_g.parameters(), lr=opt.lr*0.3)
+    deblurmodel_d_optimizer = optim.RMSprop(deblurmodel_d.parameters(), lr=opt.lr*0.3)
 
 deblurmodel_g_scheduler = optim.lr_scheduler.CosineAnnealingLR(deblurmodel_g_optimizer, T_max=opt.niter)
 deblurmodel_d_scheduler = optim.lr_scheduler.CosineAnnealingLR(deblurmodel_d_optimizer, T_max=opt.niter)
 
+# amp init
+scaler_g = torch.cuda.amp.GradScaler()
+
+# deblurgan train
 for epoch in range(opt.niter):
 
     deblurmodel_g.train()
@@ -159,10 +173,11 @@ for epoch in range(opt.niter):
             target_fake = Variable(torch.rand(opt.batch_size) * 0.3).to(device)
 
             deblurmodel_d.zero_grad()
+
             loss_real_d = criterion_d(deblurmodel_d(sharp_real), target_real)
             loss_fake_d = criterion_d(deblurmodel_d(Variable(sharp_fake)), target_fake)
-            
             loss_d = (loss_real_d + loss_fake_d) * 0.5
+
             loss_d.backward()
             epoch_losses_d.update(loss_d.item(), len(sharp))
             deblurmodel_d_optimizer.step()
@@ -173,13 +188,12 @@ for epoch in range(opt.niter):
             # get the features of real blur images and fake blur images
             features_real = Variable(feature_extractor(sharp_real.data)).to(device)
             features_fake = feature_extractor(sharp_fake.data).to(device)
-
+            
             # get loss_perceptual
-            loss_perceptual = 0.
-            grams_real = utils.calc_gram(features_real)
-            grams_fake = utils.calc_gram(features_fake)
-            for gram_fake, gram_real in zip(grams_fake, grams_real):
-                loss_perceptual += criterion_g(gram_fake, gram_real)
+            grams_real = utils.calc_gram(features_real) * 10.
+            grams_fake = utils.calc_gram(features_fake) * 10.
+            loss_perceptual = criterion_g(grams_fake, grams_real) * 4.
+            # print(F.(grams_real, grams_fake))
 
             # get loss content
             loss_content = criterion_g(sharp_real, sharp_fake)
@@ -190,10 +204,14 @@ for epoch in range(opt.niter):
 
             total_loss = 0.005 * loss_content + loss_perceptual + 0.01 * loss_rbl
 
-            total_loss.backward()
-            epoch_losses_total.update(total_loss.item(), len(blur))
+            scaler_g.scale(total_loss).backward()
+            scaler_g.step(deblurmodel_g_optimizer)
+            epoch_losses_total.update(scaler_g.scale(total_loss).item(), len(sharp))
+            scaler_g.update()
 
-            deblurmodel_g_optimizer.step()
+            # total_loss.backward()
+            # epoch_losses_total.update(total_loss.item(), len(blur))
+            # deblurmodel_g_optimizer.step()
 
             t.set_postfix(total_loss='{:.6f}'.format(epoch_losses_total.avg), loss_d='{:.6f}'.format(epoch_losses_d.avg))
             t.update(len(blur))
@@ -205,20 +223,19 @@ for epoch in range(opt.niter):
     deblurmodel_g.eval()
     epoch_pnsr = utils.AverageMeter()
     epoch_ssim = utils.AverageMeter()
-    #
+
     for data in valid_dataloader:
         sharp = data
-    #
+
         sharp = sharp.to(device)
         sharp_noise = utils.concat_noise(sharp, (4, 128, 128), sharp.size()[0])
         blur = model_blur(sharp_noise)
-    #
+
         with torch.no_grad():
             preds = deblurmodel_g(blur)[0]
             epoch_pnsr.update(utils.calc_pnsr(preds, sharp[0]), len(sharp))
             epoch_ssim.update(utils.calc_ssim(preds, sharp[0]), len(sharp))
-    #
+
     print('eval psnr: {:.4f} eval ssim: {:.4f}'.format(epoch_pnsr.avg, epoch_ssim.avg))
-    torch.cuda.empty_cache()
 
 torch.save(deblurmodel_g.state_dict(), '%s/models/dbgan_generator.pth' % opt.output_dir)
