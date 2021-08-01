@@ -12,7 +12,7 @@ import torchvision
 
 from tqdm import tqdm
 
-from model import BGAN_G, DBGAN_G, GAN_D
+from model import BlurGAN_G, DeblurGAN_G, GAN_D
 import config
 import dataset
 import utils
@@ -40,8 +40,8 @@ random.seed(manual_seed)
 torch.manual_seed(manual_seed)
 
 # cyclegan for bgan, init
-model_g_x2y = BGAN_G().to(device)
-model_g_y2x = DBGAN_G().to(device)
+model_g_x2y = BlurGAN_G().to(device)
+model_g_y2x = DeblurGAN_G().to(device)
 model_d_x = GAN_D().to(device)
 model_d_y = GAN_D().to(device)
 
@@ -211,4 +211,5 @@ for epoch in range(opt.niter):
     model_scheduler_d_y.step()
     torch.cuda.empty_cache()
 
-# torch.save(model_g_x2y.state_dict(), "%s/models/bgan_generator.pth" % opt.output_dir)
+torch.save(model_g_x2y.state_dict(), "%s/models/bgan_generator.pth" % opt.output_dir)
+torch.save(model_g_y2x.state_dict(), "%s/models/dbgan_generator_cycle.pth" % opt.output_dir)

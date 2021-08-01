@@ -11,28 +11,67 @@ def _make_layer(block, num_layers, **kwargs):
 
 class ConvReLU(nn.Module):
     """ConvReLU: conv 64 * 3 * 3 + leakyrelu"""
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, withbn=False):
         super(ConvReLU, self).__init__()
+        self.withbn = withbn
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.relu = nn.LeakyReLU(0.2)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
 
     def forward(self, x):
         x = self.conv(x)
+        if self.withbn:
+            x = self.bn(x)
+        x = self.relu(x)
+        return x
+
+
+class ConvTranReLU(nn.Module):
+    """ConvTranReLU: conv trans 64 * 3 * 3 + leakyrelu"""
+    def __init__(self, in_channels, out_channels, withbn=False):
+        super(ConvTranReLU, self).__init__()
+        self.withbn = withbn
+        self.convtran = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
+
+    def forward(self, x):
+        x = self.convtran(x)
+        if self.withbn:
+            x = self.bn(x)
+        x = self.relu(x)
+        return x
+
+
+class ConvPixelShuffle(nn.Module):
+    """ConvPixelShuffle"""
+    def __init__(self, in_channels, out_channels, num_scale=2):
+        super(ConvPixelShuffle, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.shuffle = nn.PixelShuffle(num_scale)
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.shuffle(x)
         x = self.relu(x)
         return x
 
 
 class ResBlock(nn.Module):
     """ResBlock used by BGAN and DBGAN"""
-    def __init__(self, channels=64):
+    def __init__(self, num_conv=5, channels=64):
         super(ResBlock, self).__init__()
 
-        self.conv_relu = _make_layer(ConvReLU, num_layers=5, in_channels=channels, out_channels=channels)
+        self.conv_relu = _make_layer(ConvReLU, num_layers=num_conv, in_channels=channels, out_channels=channels)
         self.conv = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False)
+
+        self.dropout = nn.Dropout(0.5)
 
     def forward(self, x):
         x = self.conv_relu(x)
         res = x
+        x = self.dropout(x)
         x = self.conv(x) + res
         return x
 
@@ -55,7 +94,6 @@ class BGAN_G(nn.Module):
         self.conv3 = nn.Conv2d(in_channels=out_channels, out_channels=in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x):
-        # TODO(jkhu29): try different res
         x = self.conv_relu1(x)
         res = x
         x = self.res1(x)
@@ -81,6 +119,65 @@ class DBGAN_G(BGAN_G):
         self.bn1 = nn.BatchNorm2d(out_channels)
 
         self.conv3 = nn.Conv2d(in_channels=out_channels, out_channels=in_channels, kernel_size=3, stride=1, padding=1, bias=False)
+
+
+class BlurGAN_G(nn.Module):
+    """the G of BlurGAN, use conv-transpose to up sample"""
+    def __init__(self, in_channels=3, out_channels=64, num_resblocks=9):
+        super(BlurGAN_G, self).__init__()
+        self.in_channels = in_channels
+        self.num_resblocks = num_resblocks
+
+        self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=self.in_channels, out_channels=out_channels)
+
+        # down sample
+        self.conv_relu2 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels, out_channels=out_channels * 2, withbn=True)
+        self.conv_relu3 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels * 4, withbn=True)
+
+        self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, num_conv=5, channels=out_channels * 4)
+
+        # up sample
+        self.convup_relu1 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 4, out_channels=out_channels * 2, withbn=True)
+        self.convup_relu2 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels, withbn=True)
+
+        self.conv4 = nn.Conv2d(out_channels, self.in_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.tanh = nn.Tanh()
+
+    def forward(self, x):
+        x = self.conv_relu1(x)
+        res = x
+        x = self.conv_relu2(x)
+        x = self.conv_relu3(x)
+        x = self.res1(x)
+        x = self.convup_relu1(x)
+        x = self.convup_relu2(x)
+        x = torch.clamp(res + x, min=0, max=1)
+        del res
+        x = self.conv4(x)
+        x = self.tanh(x)
+        return x
+
+
+class DeblurGAN_G(BlurGAN_G):
+    """the G of DeblurGAN, use conv-transpose to up sample"""
+    def __init__(self, in_channels=3, out_channels=64, num_resblocks=16):
+        super(DeblurGAN_G, self).__init__()
+        self.in_channels = in_channels
+        self.num_resblocks = num_resblocks
+
+        self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=self.in_channels, out_channels=out_channels)
+
+        # down sample
+        self.conv_relu2 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels, out_channels=out_channels * 2)
+        self.conv_relu3 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels * 4)
+
+        self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, num_conv=5, channels=out_channels * 4)
+
+        # up sample
+        self.convup_relu1 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 4, out_channels=out_channels * 2)
+        self.convup_relu2 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels)
+
+        self.conv4 = nn.Conv2d(out_channels, self.in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
 
 class GAN_D(nn.Module):
@@ -124,3 +221,4 @@ class FeatureExtractor(nn.Module):
 
     def forward(self, x):
         return self.features(x)
+

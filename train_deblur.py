@@ -11,7 +11,7 @@ import torchvision
 
 from tqdm import tqdm
 
-from model import BGAN_G, DBGAN_G, GAN_D, FeatureExtractor
+from model import BlurGAN_G, DeblurGAN_G, GAN_D, FeatureExtractor
 import config
 import dataset
 import utils
@@ -42,7 +42,7 @@ torch.manual_seed(manual_seed)
 # bgan
 # ----------------------
 # models init
-model_blur = BGAN_G().to(device)
+model_blur = BlurGAN_G().to(device)
 pth_path = opt.blur_model_path
 model_blur.load_state_dict(torch.load(pth_path))
 model_blur.to(device)
@@ -52,7 +52,7 @@ model_blur.eval()
 # dbgan
 # ----------------------
 # models init
-deblurmodel_g = DBGAN_G().to(device)
+deblurmodel_g = DeblurGAN_G().to(device)
 deblurmodel_d = GAN_D().to(device)
 
 # dataset init, train file need .h5
