@@ -209,5 +209,6 @@ for epoch in range(opt.niter):
     model_scheduler_g.step()
     model_scheduler_d_x.step()
     model_scheduler_d_y.step()
+    torch.cuda.empty_cache()
 
-torch.save(model_g.state_dict(), "%s/models/bgan_generator.pth" % opt.output_dir)
+# torch.save(model_g_x2y.state_dict(), "%s/models/bgan_generator.pth" % opt.output_dir)

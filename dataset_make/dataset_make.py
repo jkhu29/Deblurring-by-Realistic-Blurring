@@ -13,7 +13,7 @@ sys.path.append("..")
 import utils
 
 
-def make_blur(data_path, h5_path, size_image=128, stride=10):
+def make_blur(data_path, h5_path, size_image=128, stride=100):
     # TODO(jkhu29): data amplification, like: totate random angle
     imgs_blur = []
     imgs_sharp = []
@@ -37,7 +37,7 @@ def make_blur(data_path, h5_path, size_image=128, stride=10):
     print('saved')
 
 
-def make_deblur(data_path, h5_path, size_image=128, stride=10):
+def make_deblur(data_path, h5_path, size_image=128, stride=100):
     imgs = []
     for img_name in os.listdir(data_path):
         img = cv2.imread(os.path.join(data_path, img_name)) / 255.
@@ -138,14 +138,22 @@ if __name__ == '__main__':
     #     size_image=opt.size_image, stride=opt.stride
     #     )
 
-    # for train_blur.py and train_deblur.py
-    make_cycle_blur(
-            blur_train_data, deblur_train_data,
-            blur_train_path, 
-            size_image=opt.size_image, stride=opt.stride
-        )
-    make_cycle_blur(
-            blur_valid_data, deblur_valid_data,
-            blur_valid_path, 
-            size_image=opt.size_image, stride=opt.stride
-        )
+    # for train_blur.py
+    # make_cycle_blur(
+    #         blur_train_data, deblur_train_data,
+    #         blur_train_path, 
+    #         size_image=opt.size_image, stride=opt.stride
+    #     )
+    # make_cycle_blur(
+    #         blur_valid_data, deblur_valid_data,
+    #         blur_valid_path, 
+    #         size_image=opt.size_image, stride=opt.stride
+    #     )
+
+    # for train_deblur.py
+    # make_deblur(
+    #     deblur_train_data, deblur_train_path
+    # )
+    # make_deblur(
+    #     deblur_valid_data, deblur_valid_path
+    # )

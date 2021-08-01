@@ -15,7 +15,7 @@ def weights_init(model):
             nn.init.constant_(m.bias, 0)
 
 
-def clac_gram(x):
+def calc_gram(x):
     (n, c, h, w) = x.size()
     f = x.view(n, c, w * h)
     f_trans = f.transpose(1, 2)
