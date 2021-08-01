@@ -125,7 +125,7 @@ class BlurGAN_G(nn.Module):
     """the G of BlurGAN, use conv-transpose to up sample"""
     def __init__(self, in_channels=3, out_channels=64, num_resblocks=9):
         super(BlurGAN_G, self).__init__()
-        self.in_channels = in_channels
+        self.in_channels = in_channels + 4
         self.num_resblocks = num_resblocks
 
         self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=self.in_channels, out_channels=out_channels)
@@ -154,7 +154,11 @@ class BlurGAN_G(nn.Module):
         x = torch.clamp(res + x, min=0, max=1)
         del res
         x = self.conv4(x)
+<<<<<<< HEAD
         x = self.tanh(x)
+=======
+        x = self.sig(x)
+>>>>>>> 0cad20c1dc2d55eface62be211c701bc5ccd8f8b
         return x
 
 
@@ -168,13 +172,13 @@ class DeblurGAN_G(BlurGAN_G):
         self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=self.in_channels, out_channels=out_channels)
 
         # down sample
-        self.conv_relu2 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels, out_channels=out_channels * 2)
+        self.conv_relu2 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels, out_channels=out_channels * 2, withbn=True)
         self.conv_relu3 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels * 4)
 
         self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, num_conv=5, channels=out_channels * 4)
 
         # up sample
-        self.convup_relu1 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 4, out_channels=out_channels * 2)
+        self.convup_relu1 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 4, out_channels=out_channels * 2, withbn=True)
         self.convup_relu2 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels)
 
         self.conv4 = nn.Conv2d(out_channels, self.in_channels, kernel_size=3, stride=1, padding=1, bias=False)

@@ -2,7 +2,7 @@ python train_blur.py \
 	--train_file ./cycle_train.h5 \
 	--valid_file ./cycle_valid.h5 \
 	--niter 10 \
-	--batch_size 4\
+	--batch_size 2 \
 	--output_dir .
 
 python train_deblur.py \
