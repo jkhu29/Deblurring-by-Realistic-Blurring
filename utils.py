@@ -65,6 +65,14 @@ def calc_ssim(img1, img2):
         raise ValueError('Wrong input image dimensions.')
 
 
+def calculate_psnr(img1, img2):
+    """calculate PNSR on cuda and cpu: img1 and img2 have range [0, 255]"""
+    mse = torch.mean((img1 - img2)**2)
+    if mse == 0:
+        return float('inf')
+    return 20 * torch.log10(255.0 / math.sqrt(mse))
+
+
 def calc_pnsr(img1, img2):
     """calculate PNSR"""
     img1 = img1.cpu()
@@ -163,7 +171,7 @@ def generate_noise(size, channels=1, type='gaussian', scale=2):
         noise = noise1 + noise2
     if type == 'uniform':
         noise = torch.randn(channels, size[0], size[1], size[2])
-    return noise
+    return noise * 10.
 
 
 def concat_noise(img, *args):

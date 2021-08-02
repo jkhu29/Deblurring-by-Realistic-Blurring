@@ -221,7 +221,7 @@ for epoch in range(opt.niter):
 
         with torch.no_grad():
             preds = deblurmodel_g(blur)[0]
-            epoch_pnsr.update(utils.calc_pnsr(preds, sharp[0]), len(sharp))
+            epoch_pnsr.update(utils.calculate_psnr(preds, sharp[0]), len(sharp))
             epoch_ssim.update(utils.calc_ssim(preds, sharp[0]), len(sharp))
 
     print('eval psnr: {:.4f} eval ssim: {:.4f}'.format(epoch_pnsr.avg, epoch_ssim.avg))

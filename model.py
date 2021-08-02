@@ -99,7 +99,7 @@ class BGAN_G(nn.Module):
         x = self.res1(x)
         x = self.conv2(x)
         x = self.bn1(x)
-        x = torch.clamp(res + x, min=0, max=1)
+        x = res + x
         del res
         x = self.conv3(x)
         return x
@@ -151,7 +151,7 @@ class BlurGAN_G(nn.Module):
         x = self.res1(x)
         x = self.convup_relu1(x)
         x = self.convup_relu2(x)
-        x = torch.clamp(res + x, min=0, max=1)
+        x = res + x
         del res
         x = self.conv4(x)
         x = self.tanh(x)
