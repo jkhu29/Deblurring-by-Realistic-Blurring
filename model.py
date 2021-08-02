@@ -154,11 +154,7 @@ class BlurGAN_G(nn.Module):
         x = torch.clamp(res + x, min=0, max=1)
         del res
         x = self.conv4(x)
-<<<<<<< HEAD
         x = self.tanh(x)
-=======
-        x = self.sig(x)
->>>>>>> 0cad20c1dc2d55eface62be211c701bc5ccd8f8b
         return x
 
 
@@ -182,6 +178,73 @@ class DeblurGAN_G(BlurGAN_G):
         self.convup_relu2 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels)
 
         self.conv4 = nn.Conv2d(out_channels, self.in_channels, kernel_size=3, stride=1, padding=1, bias=False)
+
+
+class SFTLayer(nn.Module):
+    """SFTLayer"""
+    def __init__(self, channels):
+        super(SFTLayer, self).__init__()
+        self.scale_conv1 = nn.Conv2d(channels, channels, kernel_size=1)
+        self.scale_conv2 = nn.Conv2d(channels, channels * 2, kernel_size=1)
+        self.shift_conv1 = nn.Conv2d(channels, channels, kernel_size=1)
+        self.shift_conv2 = nn.Conv2d(channels, channels * 2, kernel_size=1)
+
+    def forward(self, x):
+        scale = self.scale_conv2(F.leaky_relu(self.scale_conv1(x[1]), 0.2, inplace=True))
+        shift = self.shift_conv2(F.leaky_relu(self.shift_conv1(x[1]), 0.2, inplace=True))
+        return x[0] * (scale + 1) + shift
+        
+
+class ResSFT(nn.Module):
+    """Resblock for SFTGAN"""
+    def __init__(self, channels=64):
+        super(ResSFT, self).__init__()
+        self.sft1 = SFTLayer()
+        self.sft2 = SFTLayer()
+
+        self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=channels, out_channels=channels)
+        self.conv_relu2 = _make_layer(ConvReLU, num_layers=1, in_channels=channels, out_channels=channels)
+
+    def forward(self, x):
+        x = self.sft1(x)
+        res = x
+        x = self.conv_relu1(x)
+        x = self.sft2(x)
+        x = self.conv_relu2(x)
+        return(x[0] + res, x[1])
+
+
+class SFTGAN_G(nn.Module):
+    """SFTGAN_G"""
+    def __init__(self, in_channels=3, out_channels=64, num_resblocks=16):
+        super(SFTGAN_G, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+
+        self.res1 = _make_layer(ResSFT, num_layers=num_resblocks)
+        self.sft1 = SFTLayer()
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+
+        # TODO
+        self.HR_branch = nn.Sequential(
+            nn.Conv2d(64, 256, 3, 1, 1), nn.PixelShuffle(2), nn.ReLU(True),
+            nn.Conv2d(64, 256, 3, 1, 1), nn.PixelShuffle(2), nn.ReLU(True),
+            nn.Conv2d(64, 64, 3, 1, 1), nn.ReLU(True), nn.Conv2d(64, 3, 3, 1, 1)
+            )
+
+        self.CondNet = nn.Sequential(
+            nn.Conv2d(8, 128, 4, 4), nn.LeakyReLU(0.2, True), nn.Conv2d(128, 128, 1),
+            nn.LeakyReLU(0.2, True), nn.Conv2d(128, 128, 1), nn.LeakyReLU(0.2, True),
+            nn.Conv2d(128, 128, 1), nn.LeakyReLU(0.2, True), nn.Conv2d(128, 32, 1)
+            )
+
+    def forward(self, x):
+        cond = self.CondNet(x[1])
+        res = self.conv1(x[0])
+        x = self.res1(x)
+        x = self.sft1(x)
+        x = self.conv2(x)
+        x = self.HR_branch(x)
+        return x
 
 
 class GAN_D(nn.Module):

@@ -106,20 +106,14 @@ for epoch in range(opt.niter):
             
             deblurmodel_g_optimizer.zero_grad()
 
-            with autocast():
-                # the blur image is made by bgan_g
-                blur = model_blur(sharp_noise)
-                sharp_fake = deblurmodel_g(blur)
-                loss = criterion_g(sharp_fake, sharp)
+            # the blur image is made by bgan_g
+            blur = model_blur(sharp_noise)
+            sharp_fake = deblurmodel_g(blur)
+            loss = criterion_g(sharp_fake, sharp)
 
-            scaler_g.scale(loss).backward()
-            scaler_g.step(deblurmodel_g_optimizer)
-            epoch_losses.update(scaler_g.scale(loss).item(), len(sharp))
-            scaler_g.update()
-
-            # loss.backward()
-            # epoch_losses.update(loss.item(), len(blur))
-            # deblurmodel_g_optimizer.step()
+            loss.backward()
+            epoch_losses.update(loss.item(), len(blur))
+            deblurmodel_g_optimizer.step()
 
             t.set_postfix(loss='{:.6f}'.format(epoch_losses.avg))
             t.update(len(sharp))
@@ -193,7 +187,6 @@ for epoch in range(opt.niter):
             grams_real = utils.calc_gram(features_real) * 10.
             grams_fake = utils.calc_gram(features_fake) * 10.
             loss_perceptual = criterion_g(grams_fake, grams_real) * 4.
-            # print(F.(grams_real, grams_fake))
 
             # get loss content
             loss_content = criterion_g(sharp_real, sharp_fake)
@@ -204,14 +197,9 @@ for epoch in range(opt.niter):
 
             total_loss = 0.005 * loss_content + loss_perceptual + 0.01 * loss_rbl
 
-            scaler_g.scale(total_loss).backward()
-            scaler_g.step(deblurmodel_g_optimizer)
-            epoch_losses_total.update(scaler_g.scale(total_loss).item(), len(sharp))
-            scaler_g.update()
-
-            # total_loss.backward()
-            # epoch_losses_total.update(total_loss.item(), len(blur))
-            # deblurmodel_g_optimizer.step()
+            total_loss.backward()
+            epoch_losses_total.update(total_loss.item(), len(blur))
+            deblurmodel_g_optimizer.step()
 
             t.set_postfix(total_loss='{:.6f}'.format(epoch_losses_total.avg), loss_d='{:.6f}'.format(epoch_losses_d.avg))
             t.update(len(blur))
