@@ -184,14 +184,17 @@ class SFTLayer(nn.Module):
     """SFTLayer"""
     def __init__(self, channels):
         super(SFTLayer, self).__init__()
-        self.scale_conv1 = nn.Conv2d(channels, channels, kernel_size=1)
-        self.scale_conv2 = nn.Conv2d(channels, channels * 2, kernel_size=1)
-        self.shift_conv1 = nn.Conv2d(channels, channels, kernel_size=1)
-        self.shift_conv2 = nn.Conv2d(channels, channels * 2, kernel_size=1)
+        self.scale_conv1 = nn.Conv2d(channels, channels * 2, kernel_size=1)
+        self.scale_conv2 = nn.Conv2d(channels * 2, channels, kernel_size=1)
+        self.relu1 = nn.LeakyReLU(0.2, inplace=True)
+
+        self.shift_conv1 = nn.Conv2d(channels, channels * 2, kernel_size=1)
+        self.shift_conv2 = nn.Conv2d(channels * 2, channels, kernel_size=1)
+        self.relu2 = nn.LeakyReLU(0.2, inplace=True)
 
     def forward(self, x):
-        scale = self.scale_conv2(F.leaky_relu(self.scale_conv1(x[1]), 0.2, inplace=True))
-        shift = self.shift_conv2(F.leaky_relu(self.shift_conv1(x[1]), 0.2, inplace=True))
+        scale = self.scale_conv2(self.relu1(self.scale_conv1(x[1])))
+        shift = self.shift_conv2(self.relu2(self.shift_conv1(x[1])))
         return x[0] * (scale + 1) + shift
         
 
@@ -199,51 +202,57 @@ class ResSFT(nn.Module):
     """Resblock for SFTGAN"""
     def __init__(self, channels=64):
         super(ResSFT, self).__init__()
-        self.sft1 = SFTLayer()
-        self.sft2 = SFTLayer()
+        self.sft1 = SFTLayer(channels)
+        self.sft2 = SFTLayer(channels)
 
         self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=channels, out_channels=channels)
         self.conv_relu2 = _make_layer(ConvReLU, num_layers=1, in_channels=channels, out_channels=channels)
 
     def forward(self, x):
-        x = self.sft1(x)
         res = x
+        x = self.sft1(x)
         x = self.conv_relu1(x)
-        x = self.sft2(x)
+        x = self.sft2((x, res[1]))
         x = self.conv_relu2(x)
-        return(x[0] + res, x[1])
+        return(res[0] + x, res[1])
 
 
 class SFTGAN_G(nn.Module):
     """SFTGAN_G"""
-    def __init__(self, in_channels=3, out_channels=64, num_resblocks=16):
+    def __init__(self, in_channels=3, out_channels=64, num_resblocks=9):
         super(SFTGAN_G, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
+        # sft branch
         self.res1 = _make_layer(ResSFT, num_layers=num_resblocks)
-        self.sft1 = SFTLayer()
+        self.sft1 = SFTLayer(out_channels)
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
-        # TODO
-        self.HR_branch = nn.Sequential(
-            nn.Conv2d(64, 256, 3, 1, 1), nn.PixelShuffle(2), nn.ReLU(True),
-            nn.Conv2d(64, 256, 3, 1, 1), nn.PixelShuffle(2), nn.ReLU(True),
-            nn.Conv2d(64, 64, 3, 1, 1), nn.ReLU(True), nn.Conv2d(64, 3, 3, 1, 1)
-            )
+        # hr branch
+        self.convup_relu1 = _make_layer(ConvTranReLU, num_layers=2, in_channels=out_channels, out_channels=out_channels)
+        self.conv_relu1 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels, out_channels=out_channels)
+        self.conv3 = nn.Conv2d(out_channels, in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
-        self.CondNet = nn.Sequential(
-            nn.Conv2d(8, 128, 4, 4), nn.LeakyReLU(0.2, True), nn.Conv2d(128, 128, 1),
-            nn.LeakyReLU(0.2, True), nn.Conv2d(128, 128, 1), nn.LeakyReLU(0.2, True),
-            nn.Conv2d(128, 128, 1), nn.LeakyReLU(0.2, True), nn.Conv2d(128, 32, 1)
-            )
+        # for seg
+        self.conv_relu2 = _make_layer(ConvReLU, num_layers=1, in_channels=in_channels, out_channels=out_channels)
+        self.conv_relu3 = _make_layer(ConvReLU, num_layers=3, in_channels=out_channels, out_channels=out_channels)
+        self.conv4 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x):
-        cond = self.CondNet(x[1])
-        res = self.conv1(x[0])
-        x = self.res1(x)
-        x = self.sft1(x)
+        # x[0]: img x[1]: seg
+        cond = self.conv_relu2(x[1])
+        cond = self.conv_relu3(cond)
+        cond = self.conv4(cond)
+
+        fea = self.conv1(x[0])
+        x = self.res1((fea, cond))
+        x = self.sft1((fea, cond))
         x = self.conv2(x)
-        x = self.HR_branch(x)
+        x = fea + x
+
+        x = self.convup_relu1(x)
+        x = self.conv_relu1(x)
+        x = self.conv3(x)
         return x
 
 
@@ -288,4 +297,3 @@ class FeatureExtractor(nn.Module):
 
     def forward(self, x):
         return self.features(x)
-

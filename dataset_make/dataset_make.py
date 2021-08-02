@@ -18,7 +18,7 @@ def make_blur(data_path, h5_path, size_image=128, stride=100):
     imgs_blur = []
     imgs_sharp = []
     for img_name in os.listdir(data_path):
-        img = cv2.imread(os.path.join(data_path, img_name)) / 127.5
+        img = cv2.imread(os.path.join(data_path, img_name))
         noise = utils.concat_noise(img, (4, size_image, size_image), img.shape[0])
 
         for x in np.arange(0, img.shape[0] - size_image + 1, stride):
@@ -40,7 +40,7 @@ def make_blur(data_path, h5_path, size_image=128, stride=100):
 def make_deblur(data_path, h5_path, size_image=128, stride=100):
     imgs = []
     for img_name in os.listdir(data_path):
-        img = cv2.imread(os.path.join(data_path, img_name)) / 255.
+        img = cv2.imread(os.path.join(data_path, img_name))
 
         for x in np.arange(0, img.shape[0] - size_image + 1, stride):
             for y in np.arange(0, img.shape[1] - size_image + 1, stride):
@@ -60,7 +60,7 @@ def make_cycle_blur(data1_path, data2_path, h5_path, size_image=128, stride=100)
 
     length = 0
     for img_name in os.listdir(data1_path):
-        img = cv2.imread(os.path.join(data1_path, img_name)) / 255.
+        img = cv2.imread(os.path.join(data1_path, img_name))
         length += 1
 
         for x in np.arange(0, img.shape[0] - size_image + 1, stride):
@@ -73,7 +73,7 @@ def make_cycle_blur(data1_path, data2_path, h5_path, size_image=128, stride=100)
 
     for i in range(length):
         img_name = img2_names[i]
-        img = cv2.imread(os.path.join(data2_path, img_name)) / 255.
+        img = cv2.imread(os.path.join(data2_path, img_name))
 
         for x in np.arange(0, img.shape[0] - size_image + 1, stride):
             for y in np.arange(0, img.shape[1] - size_image + 1, stride):
@@ -93,6 +93,7 @@ def make_cycle_blur(data1_path, data2_path, h5_path, size_image=128, stride=100)
 
 def get_options():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', type=str, default="train")
     parser.add_argument('--blur_train_path', type=str, default="./blur_train.h5")
     parser.add_argument('--blur_valid_path', type=str, default="./blur_valid.h5")
     parser.add_argument('--blur_train_data', type=str, default="./gopro/train")
@@ -120,40 +121,45 @@ if __name__ == '__main__':
     blur_valid_data = opt.blur_valid_data
     deblur_valid_data = opt.deblur_valid_data
 
+    mode = opt.mode
+
+    if mode == "train":
     # for train.py
-    # make_blur(
-    #     blur_train_data, blur_train_path,
-    #     size_image=opt.size_image, stride=opt.stride
-    #     )
-    # make_blur(
-    #     blur_valid_data, blur_valid_path,
-    #     size_image=opt.size_image, stride=opt.stride
-    #     )
-    # make_deblur(
-    #     deblur_train_data, deblur_train_path,
-    #     size_image=opt.size_image, stride=opt.stride
-    #     )
-    # make_deblur(
-    #     deblur_valid_data, deblur_valid_path,
-    #     size_image=opt.size_image, stride=opt.stride
-    #     )
-
+        make_blur(
+            blur_train_data, blur_train_path,
+            size_image=opt.size_image, stride=opt.stride
+            )
+        make_blur(
+            blur_valid_data, blur_valid_path,
+            size_image=opt.size_image, stride=opt.stride
+            )
+        make_deblur(
+            deblur_train_data, deblur_train_path,
+            size_image=opt.size_image, stride=opt.stride
+            )
+        make_deblur(
+            deblur_valid_data, deblur_valid_path,
+            size_image=opt.size_image, stride=opt.stride
+            )
+    elif mode == "train_blur":
     # for train_blur.py
-    # make_cycle_blur(
-    #         blur_train_data, deblur_train_data,
-    #         blur_train_path, 
-    #         size_image=opt.size_image, stride=opt.stride
-    #     )
-    # make_cycle_blur(
-    #         blur_valid_data, deblur_valid_data,
-    #         blur_valid_path, 
-    #         size_image=opt.size_image, stride=opt.stride
-    #     )
-
+        make_cycle_blur(
+                blur_train_data, deblur_train_data,
+                blur_train_path, 
+                size_image=opt.size_image, stride=opt.stride
+            )
+        make_cycle_blur(
+                blur_valid_data, deblur_valid_data,
+                blur_valid_path, 
+                size_image=opt.size_image, stride=opt.stride
+            )
+    elif mode == "train_deblur":
     # for train_deblur.py
-    # make_deblur(
-    #     deblur_train_data, deblur_train_path
-    # )
-    # make_deblur(
-    #     deblur_valid_data, deblur_valid_path
-    # )
+        make_deblur(
+            deblur_train_data, deblur_train_path
+        )
+        make_deblur(
+            deblur_valid_data, deblur_valid_path
+        )
+    else:
+        raise("please set mode in 'train'; 'train_blur'; 'train_deblur'")

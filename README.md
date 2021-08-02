@@ -68,16 +68,15 @@ A: 原文中并没有给出明确回答，个人想法为参考了CycleGAN的思
 
 ## Usage
 
-### CycleGAN
+### Basic
 
 数据集制作:
 
-在`./dataset_make`路径下`dataset_make.py`
-
-打开注释有`with train_blur.py`的代码段,运行以下语句
+在`./dataset_make`路径下,运行以下语句
 
 ```shell
-python dataset_make.py --blur_train_path /path/to/cycle_train.h5 \
+python dataset_make.py --mode train_blur \
+	--blur_train_path /path/to/cycle_train.h5 \
 	--blur_valid_path /path/to/cycle_valid.h5 \
 	--blur_train_data /path/to/RWBI-Dataset/train/ \
 	--blur_valid_data /path/to/RWBI-Dataset/valid/ \
@@ -85,10 +84,11 @@ python dataset_make.py --blur_train_path /path/to/cycle_train.h5 \
 	--deblur_valid_data /path/to/gopro/small/valid/
 ```
 
-在确保得到对应h5文件后,打开注释有`with train_deblur.py`的代码段,运行以下语句
+在确保得到对应h5文件后,运行以下语句
 
 ```shell
-python dataset_make.py --blur_train_path /path/to/deblur_train.h5 \
+python dataset_make.py --mode train_deblur \
+	--blur_train_path /path/to/deblur_train.h5 \
 	--blur_valid_path /path/to/deblur_valid.h5 \
 	--deblur_train_data /path/to/gopro/small/train/ \
 	--deblur_valid_data /path/to/gopro/small/valid/
@@ -124,7 +124,7 @@ epoch: 3/5: 100%|█████████████████████
 epoch: 4/5: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 3232/3232 [01:43<00:00, 31.09it/s, loss=0.054036]
 epoch: 5/5: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 3232/3232 [01:43<00:00, 31.10it/s, loss=0.050819]
 
-poch: 1/5: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 3232/3232 [01:51<00:00, 28.98it/s, loss_d=0.700632, total_loss=0.026409]
+epoch: 1/5: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 3232/3232 [01:51<00:00, 28.98it/s, loss_d=0.700632, total_loss=0.026409]
 eval psnr: 23.9839 eval ssim: 0.9321
 epoch: 2/5: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 3232/3232 [01:51<00:00, 29.05it/s, loss_d=0.701227, total_loss=0.026457]
 eval psnr: 23.8888 eval ssim: 0.9318
@@ -150,22 +150,23 @@ dbgan在GAN之后的模型结果如下:
 
 ![dbgan](./img/deblur_result.jpg)
 
-就小数据集情况来看,BGAN使用CycleGAN效果不错,DBGAN并没有达到预期
-
-> 不过这个测试图像有点过于模糊...
+就小数据集情况来看,BGAN使用CycleGAN效果不错,DBGAN的psnr指标并没有达到预期(也可能为指标计算的问题)
 
 ## Models
 
+all in `model.py`
+
 - [x] SRResNet
 - [x] DeblurGAN
-- [ ] SFTNet
+- [x] SFTGAN
 - [ ] MPRNet
 
 ## TODO
 
-- [ ] 两个模型都存在图像颜色偏黄的问题,应当在数据集制作中作适当处理
+- [x] 两个模型都存在图像颜色偏黄的问题,应当在数据集制作中作适当处理: 删除 `/ 255.`
 - [x] DBGAN原论文采用了upsample block: down --> up
 - [ ] 代码结构优化
+- [ ] 将指标计算迁移到cuda平台
 
 ## Citation
 
