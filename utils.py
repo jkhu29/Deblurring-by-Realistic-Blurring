@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import cv2
 import numpy as np
-from skimage.metrics import structural_similarity as ssim
 
 
 def weights_init(model):
@@ -23,75 +23,59 @@ def calc_gram(x):
     return gram
 
 
-class GradientPenaltyLoss(nn.Module):
-    def __init__(self, device=torch.device('cuda')):
-        super(GradientPenaltyLoss, self).__init__()
-        self.grad_outputs = self.grad_outputs.to(device)
+def gaussian(window_size, sigma):
+    gauss = torch.Tensor([exp(-(x - window_size//2)**2/float(2*sigma**2)) for x in range(window_size)])
+    return gauss/gauss.sum()
 
-    def get_grad_outputs(self, inputs):
-        if self.grad_outputs.size() != inputs.size():
-            self.grad_outputs.resize_(inputs.size()).fill_(1.0)
-        return self.grad_outputs
 
-    def forward(self, interp, interp_crit):
-        grad_outputs = self.get_grad_outputs(interp_crit)
-        grad_interp = torch.autograd.grad(outputs=interp_crit, inputs=interp, \
-            grad_outputs=grad_outputs, create_graph=True, retain_graph=True, only_inputs=True)[0]
-        grad_interp = grad_interp.view(grad_interp.size(0), -1)
-        grad_interp_norm = grad_interp.norm(2, dim=1)
+def create_window(window_size, channel):
+    _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
+    return window
 
-        loss = ((grad_interp_norm - 1)**2).mean()
-        return loss
+
+def _ssim(img1, img2, window, window_size, channel, size_average=True):
+    mu1 = F.conv2d(img1, window, padding=window_size//2, groups=channel)
+    mu2 = F.conv2d(img2, window, padding=window_size//2, groups=channel)
+
+    mu1_sq = mu1.pow(2)
+    mu2_sq = mu2.pow(2)
+    mu1_mu2 = mu1*mu2
+
+    sigma1_sq = F.conv2d(img1*img1, window, padding=window_size//2, groups=channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2*img2, window, padding=window_size//2, groups=channel) - mu2_sq
+    sigma12 = F.conv2d(img1*img2, window, padding=window_size//2, groups=channel) - mu1_mu2
+
+    C1 = 0.01**2
+    C2 = 0.03**2
+
+    ssim_map = ((2*mu1_mu2 + C1)*(2*sigma12 + C2))/((mu1_sq + mu2_sq + C1)*(sigma1_sq + sigma2_sq + C2))
+
+    if size_average:
+        return ssim_map.mean()
+    else:
+        return ssim_map.mean(1).mean(1).mean(1)
 
 
 def calc_ssim(img1, img2):
     """calculate SSIM"""
-    img1 = img1.cpu()
-    img2 = img2.cpu()
-    img1 = img1.numpy().transpose(1, 2, 0)
-    img2 = img2.numpy().transpose(1, 2, 0)
-    if not img1.shape == img2.shape:
-        raise ValueError('Input images must have the same dimensions.')
-    if img1.ndim == 2:
-        return ssim(img1, img2)
-    elif img1.ndim == 3:
-        if img1.shape[2] == 3:
-            return ssim(img1, img2, multichannel=True)
-        elif img1.shape[2] == 1:
-            return ssim(np.squeeze(img1), np.squeeze(img2))
-        else:
-            raise ValueError('Wrong input image channel.')
-    else:
-        raise ValueError('Wrong input image dimensions.')
+    (_, channel, _, _) = img1.size()
+    window = create_window(window_size, channel)
+    
+    if img1.is_cuda:
+        window = window.cuda(img1.get_device())
+    window = window.type_as(img1)
+    
+    return _ssim(img1, img2, window, window_size, channel, size_average)
 
 
-def calculate_psnr(img1, img2):
+def calc_psnr(img1, img2):
     """calculate PNSR on cuda and cpu: img1 and img2 have range [0, 255]"""
     mse = torch.mean((img1 - img2)**2)
     if mse == 0:
         return float('inf')
-    return 20 * torch.log10(255.0 / math.sqrt(mse))
-
-
-def calc_pnsr(img1, img2):
-    """calculate PNSR"""
-    img1 = img1.cpu()
-    img2 = img2.cpu()
-    img1 = img1.numpy().transpose(1, 2, 0)
-    img2 = img2.numpy().transpose(1, 2, 0)
-    if not img1.shape == img2.shape:
-        raise ValueError('Input images must have the same dimensions.')
-    if img1.ndim == 2:
-        return cv2.PSNR(img1, img2)
-    elif img1.ndim == 3:
-        if img1.shape[2] == 3:
-            return cv2.PSNR(img1 * 255., img2 * 255.)
-        elif img1.shape[2] == 1:
-            return cv2.PSNR(np.squeeze(img1), np.squeeze(img2))
-        else:
-            raise ValueError('Wrong input image channel.')
-    else:
-        raise ValueError('Wrong input image dimensions.')
+    return 20 * torch.log10(255.0 / torch.sqrt(mse))
 
 
 class AverageMeter(object):

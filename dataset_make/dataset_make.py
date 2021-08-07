@@ -15,10 +15,13 @@ import utils
 
 def make_blur(data_path, h5_path, size_image=128, stride=100):
     # TODO(jkhu29): data amplification, like: totate random angle
-    imgs_blur = []
-    imgs_sharp = []
+    print('begin to save blur data file to %s' % h5_path)
+    
+    img_sharp = []
+    img_blur = []
     for img_name in os.listdir(data_path):
         img = cv2.imread(os.path.join(data_path, img_name))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         noise = utils.concat_noise(img, (4, size_image, size_image), img.shape[0])
 
         for x in np.arange(0, img.shape[0] - size_image + 1, stride):
@@ -30,10 +33,9 @@ def make_blur(data_path, h5_path, size_image=128, stride=100):
                 imgs_sharp.append(img_sharp.transpose(2, 0, 1))
                 imgs_blur.append(img_blur.transpose(2, 0, 1))
 
-    print('begin to save blur data file to %s' % h5_path)
-    with h5py.File(h5_path, 'w') as f:
-        f.create_dataset('sharp', data=np.array(imgs_sharp, dtype=np.float32))
-        f.create_dataset('blur', data=np.array(imgs_blur, dtype=np.float32))
+        with h5py.File(h5_path, 'w') as f:
+            f.create_dataset('sharp', data=np.array(imgs_sharp, dtype=np.float32))
+            f.create_dataset('blur', data=np.array(imgs_blur, dtype=np.float32))
     print('saved')
 
 
@@ -41,6 +43,7 @@ def make_deblur(data_path, h5_path, size_image=128, stride=100):
     imgs = []
     for img_name in os.listdir(data_path):
         img = cv2.imread(os.path.join(data_path, img_name))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         for x in np.arange(0, img.shape[0] - size_image + 1, stride):
             for y in np.arange(0, img.shape[1] - size_image + 1, stride):
@@ -61,6 +64,7 @@ def make_cycle_blur(data1_path, data2_path, h5_path, size_image=128, stride=100)
     length = 0
     for img_name in os.listdir(data1_path):
         img = cv2.imread(os.path.join(data1_path, img_name))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         length += 1
 
         for x in np.arange(0, img.shape[0] - size_image + 1, stride):
@@ -74,14 +78,13 @@ def make_cycle_blur(data1_path, data2_path, h5_path, size_image=128, stride=100)
     for i in range(length):
         img_name = img2_names[i]
         img = cv2.imread(os.path.join(data2_path, img_name))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         for x in np.arange(0, img.shape[0] - size_image + 1, stride):
             for y in np.arange(0, img.shape[1] - size_image + 1, stride):
                 img_part = img[int(x): int(x + size_image),
                                int(y): int(y + size_image)]
                 sharp_imgs.append(img_part.transpose(2, 0, 1))
-
-    print(len(blur_imgs), len(sharp_imgs))
 
     print('begin to save blur data file to %s' % h5_path)
     with h5py.File(h5_path, 'w') as f:

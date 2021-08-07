@@ -9,13 +9,24 @@ def _make_layer(block, num_layers, **kwargs):
     return nn.Sequential(*layers)
 
 
+class MeanShift(nn.Conv2d):
+    def __init__(self, rgb_mean, sign):
+        super(MeanShift, self).__init__(3, 3, kernel_size=1)
+        self.weight.data = torch.eye(3).view(3, 3, 1, 1)
+        self.bias.data = float(sign) * torch.Tensor(rgb_mean)
+
+        # Freeze the MeanShift layer
+        for params in self.parameters():
+            params.requires_grad = False
+
+
 class ConvReLU(nn.Module):
     """ConvReLU: conv 64 * 3 * 3 + leakyrelu"""
     def __init__(self, in_channels, out_channels, withbn=False):
         super(ConvReLU, self).__init__()
         self.withbn = withbn
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
+        self.bn = nn.InstanceNorm2d(out_channels)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
 
     def forward(self, x):
@@ -32,7 +43,7 @@ class ConvTranReLU(nn.Module):
         super(ConvTranReLU, self).__init__()
         self.withbn = withbn
         self.convtran = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
+        self.bn = nn.InstanceNorm2d(out_channels)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
 
     def forward(self, x):
@@ -89,7 +100,7 @@ class BGAN_G(nn.Module):
         self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, channels=out_channels)
 
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.bn1 = nn.BatchNorm2d(out_channels, inplace=True)
 
         self.conv3 = nn.Conv2d(in_channels=out_channels, out_channels=in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
@@ -116,7 +127,7 @@ class DBGAN_G(BGAN_G):
         self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, channels=out_channels)
 
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.bn1 = nn.BatchNorm2d(out_channels, inplace=True)
 
         self.conv3 = nn.Conv2d(in_channels=out_channels, out_channels=in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
@@ -125,6 +136,7 @@ class BlurGAN_G(nn.Module):
     """the G of BlurGAN, use conv-transpose to up sample"""
     def __init__(self, in_channels=3, out_channels=64, num_resblocks=9):
         super(BlurGAN_G, self).__init__()
+
         self.in_channels = in_channels + 4
         self.num_resblocks = num_resblocks
 
@@ -132,16 +144,15 @@ class BlurGAN_G(nn.Module):
 
         # down sample
         self.conv_relu2 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels, out_channels=out_channels * 2, withbn=True)
-        self.conv_relu3 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels * 4, withbn=True)
+        self.conv_relu3 = _make_layer(ConvReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels * 4)
 
         self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, num_conv=5, channels=out_channels * 4)
 
         # up sample
         self.convup_relu1 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 4, out_channels=out_channels * 2, withbn=True)
-        self.convup_relu2 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels, withbn=True)
+        self.convup_relu2 = _make_layer(ConvTranReLU, num_layers=1, in_channels=out_channels * 2, out_channels=out_channels)
 
-        self.conv4 = nn.Conv2d(out_channels, self.in_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.tanh = nn.Tanh()
+        self.conv4 = nn.Conv2d(out_channels, in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x):
         x = self.conv_relu1(x)
@@ -154,7 +165,6 @@ class BlurGAN_G(nn.Module):
         x = res + x
         del res
         x = self.conv4(x)
-        x = self.tanh(x)
         return x
 
 
