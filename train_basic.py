@@ -13,6 +13,7 @@ import torchvision
 from tqdm import tqdm
 
 from model import BlurGAN_G, DBGAN_G, GAN_D
+from criterion import GradientPenaltyLoss
 import config
 import dataset
 import utils
@@ -117,13 +118,12 @@ class BasicCycleGAN(object):
                     # --------------------
                     # generator train(2 * model_g)
                     # --------------------
-                    self.optimizer_g.zero_grad()
-
                     target_real = Variable(torch.rand(self.batch_size) * 0.5 + 0.7).to(self.device)
 
                     loss_total = self._calc_loss_g(blur_noise, blur_real, sharp_real, sharp_noise)
 
                     if cnt % self.batch_scale == 0:
+                        self.optimizer_g.zero_grad()
                         loss_total.backward()
                         epoch_losses_g.update(loss_total.item(), len(sharp))
                         self.optimizer_g.step()
@@ -132,13 +132,13 @@ class BasicCycleGAN(object):
                     # discriminator sharp train(model_d_x)
                     # -------------------- 
                     self.model_d_x.train()
-                    self.optimizer_d_x.zero_grad()
 
                     target_fake = Variable(torch.rand(self.batch_size) * 0.3).to(device)
 
                     loss_total_d_x = self._calc_loss_d(sharp_real, target_real, sharp_fake, target_fake)
 
                     if cnt % self.batch_scale == 0:
+                        self.optimizer_d_x.zero_grad()
                         loss_total_d_x.backward()
                         epoch_losses_d_x.update(loss_total_d_x.item(), len(sharp))
                         self.optimizer_d_x.step()
@@ -147,11 +147,11 @@ class BasicCycleGAN(object):
                     # discriminator blur train(model_d_y)
                     # -------------------- 
                     self.model_d_y.train()
-                    self.optimizer_d_y.zero_grad()
 
                     loss_total_d_y = self._calc_loss_d(blur_real, target_real, blur_fake, target_fake)
 
                     if cnt % self.batch_scale == 0:
+                        self.optimizer_d_y.zero_grad()
                         loss_total_d_y.backward()
                         epoch_losses_d_y.update(loss_total_d_y.item(), len(sharp))
                         self.optimizer_d_y.step()
@@ -222,10 +222,10 @@ class BasicCycleGAN(object):
         return loss_total
 
 
-class BasicDBGAN(object):
-    """BasicDBGAN"""
+class BasicGAN(object):
+    """BasicGAN"""
     def __init__(self, blur_model_path, device):
-        super(BasicDBGAN, self).__init__()
+        super(BasicGAN, self).__init__()
         self.device = device
         self.niter = 10
         self.batch_size = 32
@@ -315,24 +315,25 @@ class BasicDBGAN(object):
                     sharp_real = Variable(sharp).to(self.device)
                     sharp_fake = self.deblurmodel_g(blur).to(self.device)
 
+                    # --------------
                     # update model d
+                    # --------------
                     target_real = Variable(torch.rand(self.batch_size) * 0.5 + 0.7).to(self.device)
                     target_fake = Variable(torch.rand(self.batch_size) * 0.3).to(self.device)
-
-                    self.deblurmodel_d.zero_grad()
 
                     loss_real_d = self.criterion_d(self.deblurmodel_d(sharp_real), target_real)
                     loss_fake_d = self.criterion_d(self.deblurmodel_d(Variable(sharp_fake)), target_fake)
                     loss_d = (loss_real_d + loss_fake_d) * 0.5
 
                     if cnt % self.batch_scale == 0:
+                        self.deblurmodel_d.zero_grad()
                         loss_d.backward()
                         epoch_losses_d.update(loss_d.item(), len(sharp))
                         self.deblurmodel_d_optimizer.step()
 
+                    # --------------
                     # update model g
-                    self.deblurmodel_g.zero_grad()
-
+                    # --------------
                     # get the features of real blur images and fake blur images
                     features_real = Variable(self.feature_extractor(sharp_real.data)).to(self.device)
                     features_fake = self.feature_extractor(sharp_fake.data).to(self.device)
@@ -352,6 +353,7 @@ class BasicDBGAN(object):
                     total_loss = 0.005 * loss_content + loss_perceptual + 0.01 * loss_rbl
 
                     if cnt % self.batch_scale == 0:
+                        self.deblurmodel_g.zero_grad()
                         total_loss.backward()
                         epoch_losses_total.update(total_loss.item(), len(blur))
                         self.deblurmodel_g_optimizer.step()
@@ -385,3 +387,194 @@ class BasicDBGAN(object):
                 epoch_ssim.update(utils.calc_ssim(preds, sharp[0]), len(sharp))
 
         print('eval psnr: {:.4f} eval ssim: {:.4f}'.format(epoch_pnsr.avg, epoch_ssim.avg))
+
+
+class BasicWGAN(BasicGAN):
+    """BasicWGAN clipping"""
+    def __init__(self, blur_model_path, device):
+        super(BasicWGAN, self).__init__()
+        # optim init
+        self.deblurmodel_g_optimizer = optim.RMSprop(
+            deblurmodel_g.parameters(), 
+            lr=self.lr
+        )
+        self.deblurmodel_d_optimizer = optim.RMSprop(
+            deblurmodel_d.parameters(), 
+            lr=self.lr
+        )
+
+        self.weight_cliping_limit = 0.01
+
+    def _train_batch(self):
+        cnt = 0
+        one = torch.FloatTensor([1])
+        mone = one * -1
+        for epoch in range(self.niter):
+            deblurmodel_g.train()
+            deblurmodel_d.train()
+
+            epoch_losses_d = utils.AverageMeter()
+            epoch_losses_total = utils.AverageMeter()
+
+            with tqdm(total=(len(train_dataset) - len(train_dataset) % self.batch_size)) as t:
+                t.set_description('epoch: {}/{}'.format(epoch+1, self.niter))
+
+                for sharp in self.train_dataloader:
+                    cnt += 1
+
+                    sharp = sharp.to(self.device)
+                    sharp_noise = utils.concat_noise(sharp, (4, 128, 128), sharp.size()[0])
+                    blur = self.model_blur(sharp_noise)
+
+                    # get the sharp real and fake
+                    sharp_real = Variable(sharp).to(self.device)
+                    sharp_fake = self.deblurmodel_g(blur).to(self.device)
+
+                    # --------------
+                    # update model d
+                    # --------------
+                    for p in self.deblurmodel_d.parameters():
+                        p.data.clamp_(-self.weight_cliping_limit, self.weight_cliping_limit)
+
+                    target_real = Variable(torch.rand(self.batch_size) * 0.5 + 0.7).to(self.device)
+                    target_fake = Variable(torch.rand(self.batch_size) * 0.3).to(self.device)
+
+                    loss_real_d = self.criterion_d(self.deblurmodel_d(sharp_real), target_real)
+                    loss_fake_d = self.criterion_d(self.deblurmodel_d(Variable(sharp_fake)), target_fake)
+                    loss_d = - loss_real_d + loss_fake_d
+
+                    if cnt % self.batch_scale == 0:
+                        self.deblurmodel_d.zero_grad()
+                        loss_real_d.backward(one)
+                        loss_fake_d.backward(mone)
+                        epoch_losses_d.update(loss_d.item(), len(sharp))
+                        self.deblurmodel_d_optimizer.step()
+
+                    # --------------
+                    # update model g
+                    # --------------
+                    # get the features of real blur images and fake blur images
+                    features_real = Variable(self.feature_extractor(sharp_real.data)).to(self.device)
+                    features_fake = self.feature_extractor(sharp_fake.data).to(self.device)
+                    
+                    # get loss_perceptual
+                    grams_real = utils.calc_gram(features_real) * 10.
+                    grams_fake = utils.calc_gram(features_fake) * 10.
+                    loss_perceptual = self.criterion_g(grams_fake, grams_real) * 4.
+
+                    # get loss content
+                    loss_content = self.criterion_g(sharp_real, sharp_fake)
+                    
+                    # get loss_rbl
+                    loss_rbl = - torch.log(abs(loss_real_d.detach() - loss_fake_d.detach())) - \
+                                 torch.log(abs(1 - loss_fake_d.detach() - loss_real_d.detach()))
+
+                    total_loss = 0.005 * loss_content + loss_perceptual + 0.01 * loss_rbl
+
+                    if cnt % self.batch_scale == 0:
+                        self.deblurmodel_g.zero_grad()
+                        total_loss.backward()
+                        epoch_losses_total.update(total_loss.item(), len(blur))
+                        self.deblurmodel_g_optimizer.step()
+
+                    t.set_postfix(total_loss='{:.6f}'.format(epoch_losses_total.avg), loss_d='{:.6f}'.format(epoch_losses_d.avg))
+                    t.update(len(blur))
+
+                self._valid()
+
+            self.deblurmodel_g_scheduler.step()
+            self.deblurmodel_d_scheduler.step()
+
+        torch.save(self.deblurmodel_g.state_dict(), '%s/models/dbgan_generator.pth' % self.output_dir)
+
+
+class BasicWGANGP(object):
+    """BasicWGANGP"""
+    def __init__(self, blur_model_path, device):
+        super(BasicWGANGP, self).__init__()
+        self.gradient_penalty = GradientPenaltyLoss()
+    
+    def _train_batch(self):
+        cnt = 0
+        one = torch.FloatTensor([1])
+        mone = one * -1
+        for epoch in range(self.niter):
+            deblurmodel_g.train()
+            deblurmodel_d.train()
+
+            epoch_losses_d = utils.AverageMeter()
+            epoch_losses_total = utils.AverageMeter()
+
+            with tqdm(total=(len(train_dataset) - len(train_dataset) % self.batch_size)) as t:
+                t.set_description('epoch: {}/{}'.format(epoch+1, self.niter))
+
+                for sharp in self.train_dataloader:
+                    cnt += 1
+
+                    sharp = sharp.to(self.device)
+                    sharp_noise = utils.concat_noise(sharp, (4, 128, 128), sharp.size()[0])
+                    blur = self.model_blur(sharp_noise)
+
+                    # get the sharp real and fake
+                    sharp_real = Variable(sharp).to(self.device)
+                    sharp_fake = self.deblurmodel_g(blur).to(self.device)
+
+                    # --------------
+                    # update model d
+                    # --------------
+                    for p in self.deblurmodel_d.parameters():
+                        p.data.clamp_(-self.weight_cliping_limit, self.weight_cliping_limit)
+
+                    target_real = Variable(torch.rand(self.batch_size) * 0.5 + 0.7).to(self.device)
+                    target_fake = Variable(torch.rand(self.batch_size) * 0.3).to(self.device)
+
+                    loss_real_d = self.criterion_d(self.deblurmodel_d(sharp_real), target_real)
+                    loss_fake_d = self.criterion_d(self.deblurmodel_d(Variable(sharp_fake)), target_fake)
+                    loss_d = - loss_real_d + loss_fake_d
+
+                    if cnt % self.batch_scale == 0:
+                        self.deblurmodel_d.zero_grad()
+                        loss_real_d.backward(mone)
+                        loss_fake_d.backward(one)
+                        epoch_losses_d.update(loss_d.item(), len(sharp))
+                        self.deblurmodel_d_optimizer.step()
+                        # train with gradient penalty
+                        loss_gradient_penalty = self.gradient_penalty(sharp_real.data, sharp_fake.data)
+                        loss_gradient_penalty.backward()
+
+                    # --------------
+                    # update model g
+                    # --------------
+                    # get the features of real blur images and fake blur images
+                    features_real = Variable(self.feature_extractor(sharp_real.data)).to(self.device)
+                    features_fake = self.feature_extractor(sharp_fake.data).to(self.device)
+                    
+                    # get loss_perceptual
+                    grams_real = utils.calc_gram(features_real) * 10.
+                    grams_fake = utils.calc_gram(features_fake) * 10.
+                    loss_perceptual = self.criterion_g(grams_fake, grams_real) * 4.
+
+                    # get loss content
+                    loss_content = self.criterion_g(sharp_real, sharp_fake)
+                    
+                    # get loss_rbl
+                    loss_rbl = - torch.log(abs(loss_real_d.detach() - loss_fake_d.detach())) - \
+                                 torch.log(abs(1 - loss_fake_d.detach() - loss_real_d.detach()))
+
+                    total_loss = 0.005 * loss_content + loss_perceptual + 0.01 * loss_rbl
+
+                    if cnt % self.batch_scale == 0:
+                        self.deblurmodel_g.zero_grad()
+                        total_loss.backward()
+                        epoch_losses_total.update(total_loss.item(), len(blur))
+                        self.deblurmodel_g_optimizer.step()
+
+                    t.set_postfix(total_loss='{:.6f}'.format(epoch_losses_total.avg), loss_d='{:.6f}'.format(epoch_losses_d.avg))
+                    t.update(len(blur))
+
+                self._valid()
+
+            self.deblurmodel_g_scheduler.step()
+            self.deblurmodel_d_scheduler.step()
+
+        torch.save(self.deblurmodel_g.state_dict(), '%s/models/dbgan_generator.pth' % self.output_dir)

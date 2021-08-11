@@ -100,7 +100,7 @@ class BGAN_G(nn.Module):
         self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, channels=out_channels)
 
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels, inplace=True)
+        self.bn1 = nn.BatchNorm2d(out_channels)
 
         self.conv3 = nn.Conv2d(in_channels=out_channels, out_channels=in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
@@ -127,7 +127,7 @@ class DBGAN_G(BGAN_G):
         self.res1 = _make_layer(ResBlock, num_layers=self.num_resblocks, channels=out_channels)
 
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels, inplace=True)
+        self.bn1 = nn.BatchNorm2d(out_channels)
 
         self.conv3 = nn.Conv2d(in_channels=out_channels, out_channels=in_channels, kernel_size=3, stride=1, padding=1, bias=False)
 

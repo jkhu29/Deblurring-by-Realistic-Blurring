@@ -98,8 +98,13 @@ python dataset_make.py --mode train_deblur \
 
 > 小数据集会导致生成图像颜色偏差严重
 
-### Basic
 
+## TODOs
+
+- [ ] 显存(Variable)
+- [ ] amp加速 `in branch: amp`
+- [ ] visdom可视化
+- [ ] 使用transformer构建判别器
 
 
 ## Models

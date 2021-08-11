@@ -10,7 +10,7 @@ from nvidia.dali.pipeline import Pipeline
 
 class BasicDataset(Dataset):
     def __init__(self, h5_file):
-        super(TrainDataset, self).__init__()
+        super(BasicDataset, self).__init__()
         self.h5_file = h5_file
 
     def __getitem__(self, idx):
@@ -24,7 +24,7 @@ class BasicDataset(Dataset):
 
 class BasicDatasetDeblur(Dataset):
     def __init__(self, h5_file):
-        super(TrainDatasetDeblur, self).__init__()
+        super(BasicDatasetDeblur, self).__init__()
         self.h5_file = h5_file
 
     def __getitem__(self, idx):
