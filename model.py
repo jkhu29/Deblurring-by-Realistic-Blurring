@@ -134,7 +134,7 @@ class DBGAN_G(BGAN_G):
 
 class BlurGAN_G(nn.Module):
     """the G of BlurGAN, use conv-transpose to up sample"""
-    def __init__(self, in_channels=3, out_channels=64, num_resblocks=9):
+    def __init__(self, in_channels=3, out_channels=64, num_resblocks=8):
         super(BlurGAN_G, self).__init__()
 
         self.in_channels = in_channels + 4
