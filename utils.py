@@ -1,7 +1,8 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import cv2
+from torch.autograd import Variable
 import numpy as np
 
 
@@ -24,7 +25,7 @@ def calc_gram(x):
 
 
 def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size//2)**2/float(2*sigma**2)) for x in range(window_size)])
+    gauss = torch.Tensor([math.exp(-(x - window_size//2)**2/float(2*sigma**2)) for x in range(window_size)])
     return gauss/gauss.sum()
 
 
@@ -58,7 +59,7 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
         return ssim_map.mean(1).mean(1).mean(1)
 
 
-def calc_ssim(img1, img2):
+def calc_ssim(img1, img2, window_size=11):
     """calculate SSIM"""
     (_, channel, _, _) = img1.size()
     window = create_window(window_size, channel)
@@ -67,7 +68,7 @@ def calc_ssim(img1, img2):
         window = window.cuda(img1.get_device())
     window = window.type_as(img1)
     
-    return _ssim(img1, img2, window, window_size, channel, size_average)
+    return _ssim(img1, img2, window, window_size, channel, size_average=True)
 
 
 def calc_psnr(img1, img2):
@@ -140,12 +141,37 @@ def convert_ycbcr_to_rgb(img):
         raise Exception('Unknown Type', type(img))
 
 
+def rgb2lum(arr):
+    small = np.where(arr <= 0.04045)
+    big = np.where(arr > 0.04045)
+    arr[small] /= 12.92
+    arr[big] = ((arr[big] + 0.055) / 1.055) ** 2.4
+    return arr
+
+
+def lum(image):
+    """
+    turn BGR to Lum
+    :param image: image in sRGB area, range 255
+    :return: image in Lum
+    """
+    assert image.shape[0] == 3, "make sure the layout is (c, h, w), BGR"
+    _, h, w = image.shape
+    image = image.astype(np.float)
+    v_b = image[0, ...] / 255
+    v_g = image[1, ...] / 255
+    v_r = image[2, ...] / 255
+    print(rgb2lum(v_r))
+    l_image = 0.2126 * rgb2lum(v_r) + 0.7152 * rgb2lum(v_g) + 0.0722 * rgb2lum(v_b)
+    return l_image
+
+
 def upsampling(img, x, y):
     func = nn.Upsample(size=[x, y], mode='bilinear', align_corners=True)
     return func(img)
 
 
-def generate_noise(size, channels=1, type='gaussian', scale=2):
+def generate_noise(size, channels=1, type='gaussian', scale=2, noise=None):
     if type == 'gaussian':
         noise = torch.randn(channels, size[0], round(size[1]/scale), round(size[2]/scale))
         noise = upsampling(noise, size[1], size[2])
@@ -166,3 +192,9 @@ def concat_noise(img, *args):
         img = torch.from_numpy(img.transpose(2, 0, 1)).unsqueeze(0)
     mixed_img = torch.cat((img, noise), 1)
     return mixed_img
+
+
+class ImageEvaluation(object):
+    def __init__(self, img, mode):
+        super(ImageEvaluation, self).__init__()
+        self.img = img

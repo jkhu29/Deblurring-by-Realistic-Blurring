@@ -1,6 +1,6 @@
-from train_basic import BasicWGAN
+from train_basic import BasicWGANGP
 
 
 if __name__ == '__main__':
-    dbgan = BasicWGAN()
-    dbgan._train_batch()
+    dbgan = BasicWGANGP()
+    dbgan.train_batch()

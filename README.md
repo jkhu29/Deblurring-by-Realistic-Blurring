@@ -1,120 +1,86 @@
-# Deblurring by Realistic Blurring复现
+# Deblurring by Realistic Blurring
 
-[论文地址](https://arxiv.org/pdf/2004.01860v2.pdf)
+[article](https://arxiv.org/pdf/2004.01860v2.pdf)
 
-使用了两个GAN，一个用来把图片变模糊BGAN、一个用来把图片变清晰DBGAN，前者作为后者的先验
+two GANs are used, one for blurring the image(BGAN) and one for deblurring the image (DBGAN), with the former serving as a priori for the latter.
 
-图像生成过程：
+processes:
 
-1. 清晰的图像传入BGAN，生成模糊的图像
-2. 生成的模糊图像与数据集中的模糊图像传入DBGAN，生成清晰图像
+1. sharp --> bgan --> real blur
+2. real blur --> dbgan --> sharp(fake)
 
-损失采用：relativistic blur loss
+losses：relativistic blur loss
 
 ![relativistic blur loss](./img/rbl.png)
 
-一般的loss主要是为了保证GAN生成网络具有以下效果:
+the general loss is mainly to ensure that the GANs has the following effects:
 
-1. 使得判别器网络认为img是real类别的概率无限趋近于1
-2. 使得判别器网络认为img是fake类别的概率无限趋近于0
+1. the probability that the discriminator considers img to be the real category tends to be infinitely close to 1
+2. the probability that the discriminator considers img to be the fake category tends to be infinitely close to 1
 
-relativistic blur loss的主要目的就为中和这两种评判，使得两种概率都趋于0.5
+relativistic blur loss is to make p(fake_d) == p(real_d) 
 
-> 需要注意的是，我们并不是要生成真实图像，而是要欺骗判别器
+## Data
 
-## 数据集
+please see this part in [official implementation](https://github.com/HDCVLab/Deblurring-by-Realistic-Blurring)
 
-文章采用GoPro数据集和论文作者自己创建的真实图像数据集
+but they do not have training script, that's why I write these code.
 
-## 网络结构
+## Model
 
-![bgan_and_dbgan](./img/bgan_and_dbgan.png)
+![bgan_and_dbgan](./img/model.png)
 
-BGAN：用于生成模糊图像，清晰图像来自GoPro，模糊图像来自真实世界拍摄，两者并不匹配
+BGAN：sharp --> blur
 
-GBGAN：用于生成清晰图像，参考DeblurGAN做了一点修改
+GBGAN：blur --> sharp, like DeblurGAN
 
 ### BGAN
 
-1. 使用random(4\*128\*128)加到原图上，形成初步的模糊图
-2. 1个Conv2d --> 9个ResBlock --> 2个Conv2d
-3. ResBlock: 5个Conv2d(64, 3, 3) --> 4个LeakyReLU
-4. 还有一个从输入连到输出的ResBlock
+1. gaussian noise concat
+2. Conv2d --> 9ResBlock --> 2Conv2d (maybe we could use less resblock)
+3. ResBlock: 5Conv2d --> 4LeakyReLU (maybe we could use less Conv2d)
+4. long res
 
-判别器与SRGAN一致
+GAN_D: vgg19, pretrained (without BN)
 
-Q: 为什么数据集可以不匹配？
-
-A: 原文中并没有给出明确回答，个人想法为参考了CycleGAN的思路(回译)
-
-> 本代码将实现配对版本(train.py)与非配对版本(train_blur.py and train_deblur.py)
+Because the data set is not aligned, the cyclegan idea is used
 
 ### DBGAN
 
-结构跟BGAN基本一样
+Basically the same as BGAN
 
-1. 去掉BN
-2. 16个ResBlock
+1. without BN (why not IN)
+2. 16个ResBlock (also, i don't think need so many resblocks)
 
-采用L1损失与GAN相关损失
+## Result
 
-### trick
+| 原图                                            | 模糊后                                               | 去模糊后                                               |
+| ----------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------ |
+| ![](/home/jkhu29/img-edit/deblur/img/model.png) | ![](/home/jkhu29/img-edit/deblur/img/model_blur.png) | ![](/home/jkhu29/img-edit/deblur/img/model_deblur.png) |
+| ![](/home/jkhu29/img-edit/deblur/img/rbl.png)   | ![](/home/jkhu29/img-edit/deblur/img/rbl_blur.png)   | ![](/home/jkhu29/img-edit/deblur/img/rbl_deblur.png)   |
 
-1. 高斯权重初始化，均值为0，方差为0.01
-2. 每4个epoch更新权重（没有太大必要，batchsize调大就行，当然最好还是使用该trick变相增大batch-size）
-3. 随机裁减(128\*128)、随机翻转
-4. 余弦退火，初始1e-4，当loss收敛后将loss降到1e-6
-5. loss超参数 α: 0.005, β: 0.01
+
 
 ## Usage
 
-### 数据集制作
+use tfrecord in pytorch
 
-h5数据集制作:
+> you can also see .h5 made in Chinese README
 
-在`./dataset_make`路径下,运行以下语句
-
-```shell
-python dataset_make.py --mode train_blur \
-	--blur_train_path /path/to/cycle_train.h5 \
-	--blur_valid_path /path/to/cycle_valid.h5 \
-	--blur_train_data /path/to/RWBI-Dataset/train/ \
-	--blur_valid_data /path/to/RWBI-Dataset/valid/ \
-	--deblur_train_data /path/to/gopro/small/train/ \
-	--deblur_valid_data /path/to/gopro/small/valid/
-```
-
-在确保得到对应h5文件后,运行以下语句
+in `./dataset_make`, run
 
 ```shell
-python dataset_make.py --mode train_deblur \
-	--blur_train_path /path/to/deblur_train.h5 \
-	--blur_valid_path /path/to/deblur_valid.h5 \
-	--deblur_train_data /path/to/gopro/small/train/ \
-	--deblur_valid_data /path/to/gopro/small/valid/
+python dataset_make.py --mode train_blur
+python dataset_make.py --mode train_deblur 
 ```
 
-随后`sh train_small.sh`即可开始运行
-
-> 小数据集会导致生成图像颜色偏差严重
-
+then `sh train_small.sh`
 
 ## TODOs
 
-- [ ] 显存(Variable)
-- [ ] amp加速 `in branch: amp`
-- [ ] visdom可视化
-- [ ] 使用transformer构建判别器
-
-
-## Models
-
-all in `model.py`
-
-- [x] SRResNet
-- [x] DeblurGAN
-- [x] SFTGAN
-- [ ] MPRNet
+- [x] format code
+- [x] amp `in branch: amp`
+- [ ] visdom
 
 ## Citation
 
